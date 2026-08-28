@@ -1,0 +1,339 @@
+version: 8
+
+github:
+  # GitHub.com. For GHES use https://github.example.com/api/v3 and
+  # https://github.example.com/api/graphql.
+  api_url: https://api.github.com
+  graphql_url: https://api.github.com/graphql
+  token_env: GITHUB_TOKEN
+  clone_protocol: https
+  metadata: full
+  include_forks: true
+  include_archived: true
+  release_assets: true
+  discussions: true
+  packages: true
+  oci_export: false
+  actions_artifacts: true
+  projects_v2: true
+  max_asset_bytes: 2147483648
+  max_artifact_bytes: 2147483648
+  max_metadata_pages: 100
+
+backup:
+  root: ~/.repoark/backups
+  concurrency: 4
+  create_bundles: true
+  fetch_lfs: true
+  verify_after_backup: true
+  keep_manifests: 30
+
+# Content-addressed storage deduplicates immutable payloads while leaving
+# ordinary restore paths in place (hard links when supported).
+cas:
+  enabled: true
+  root: ~/.repoark/cas
+  min_file_size: 1048576
+  auto_compact: true
+
+# Registry payloads are opt-in because they can consume substantial space.
+# GitHub Packages currently expects a classic PAT with read:packages for many
+# package install/download flows. Registry URLs can be overridden for GHES.
+package_payloads:
+  enabled: false
+  npm: true
+  nuget: true
+  maven: true
+  rubygems: true
+  max_bytes: 2147483648
+  npm_registry: https://npm.pkg.github.com
+  nuget_registry: https://nuget.pkg.github.com
+  maven_registry: https://maven.pkg.github.com
+  rubygems_registry: https://rubygems.pkg.github.com
+
+gitlab:
+  enabled: false
+  url: http://gitlab.local:8080
+  token_env: GITLAB_TOKEN
+  image: gitlab/gitlab-ce:19.2.4-ce.0
+  hostname: gitlab.local
+  http_port: 8080
+  https_port: 8443
+  ssh_port: 2222
+  data_dir: ~/.repoark/gitlab
+  container_name: repoark-gitlab
+  remote_host: ""
+  preserve_namespaces: true
+  restore_drill:
+    enabled: false
+    work_dir: ~/.repoark/gitlab-drills
+    http_port: 18080
+    ssh_port: 12222
+    timeout: 20m
+    keep_on_failure: true
+
+
+# Durable v0.6 control plane + optional HA data plane. Disabled by default so v0.4-style direct CLI
+# operation stays backward compatible. SQLite is the zero-config default; use
+# PostgreSQL for multiple control-plane replicas / external HA databases.
+control_plane:
+  enabled: false
+  store:
+    driver: sqlite # sqlite or postgres
+    sqlite_path: ~/.repoark/control/repoark.db
+    dsn_env: REPOARK_DATABASE_URL
+  workers:
+    concurrency: 2
+    poll_interval: 2s
+    lease: 2m
+    max_attempts: 5
+  scheduler:
+    enabled: true
+    tick: 30s
+    discovery_interval: 30m
+    default_interval: 24h
+    policies:
+      - pattern: critical/*
+        interval: 1h
+        priority: 100
+        mirror_gitlab: true
+      - pattern: "*"
+        interval: 24h
+        priority: 50
+        mirror_gitlab: true
+  generations:
+    enabled: true
+    root: ~/.repoark/generations
+    # Staging destination on the worker/agent that physically owns a generation.
+    restore_root: ~/.repoark/recovery
+    keep_per_repo: 14
+  mirroring:
+    enabled: false
+    after_backup: true
+  # Agent API is a separate mTLS-only listener. The observability/dashboard
+  # listener remains read-only. Keep the CA private key off worker machines.
+  agents:
+    enabled: false
+    listen: 127.0.0.1:9790
+    server_url: https://127.0.0.1:9790
+    ca_path: ~/.config/repoark/pki/ca.pem
+    ca_key_path: ~/.config/repoark/pki/ca-key.pem
+    server_cert_path: ~/.config/repoark/pki/server.pem
+    server_key_path: ~/.config/repoark/pki/server-key.pem
+    client_cert_path: ~/.config/repoark/pki/agent.pem
+    client_key_path: ~/.config/repoark/pki/agent-key.pem
+    agent_name: local-agent
+    heartbeat: 15s
+    replication_key_path: ~/.config/repoark/pki/replication-x25519.key
+    labels:
+      role: backup-worker
+      zone: rack-a
+      site: dc-1
+      cas_pool: primary
+      bandwidth_mbps: "1000"
+
+  # HA data plane. Generations are encrypted end-to-end to the destination
+  # agent X25519 key and relayed through the control plane as opaque blobs.
+  replication:
+    enabled: false
+    factor: 2
+    min_healthy: 2
+    reconcile_interval: 1m
+    agent_timeout: 2m
+    transfer_ttl: 2h
+    spool_root: ~/.repoark/replication-spool
+    local_key_path: ~/.config/repoark/pki/replication-local-x25519.key
+    include_local: true
+    max_transfer_bytes: 21474836480
+    # Optional topology-aware placement. All online ready copies must span at
+    # least min_failure_domains distinct values of this agent label.
+    failure_domain_label: zone
+    min_failure_domains: 2
+    allowed_agents: []
+    excluded_agents: []
+
+  # Distributed storage / data-health layer. Healthy heartbeat alone is not
+  # enough for placement: free capacity and a write/fsync/read probe are used.
+  storage:
+    enabled: true
+    min_free_bytes: 10737418240 # 10 GiB reserve
+    min_free_percent: 10
+    max_probe: 3s
+    evacuate_degraded: true
+    inventory_enabled: true
+    inventory_interval: 10m
+    chunk_bytes: 8388608 # 8 MiB resumable encrypted relay chunks
+    chunk_retries: 5
+    bandwidth_limit_mbps: 0 # 0 = unlimited
+    object_replication_factor: 0 # opt-in CAS-object reconciliation
+    object_pool_label: cas_pool
+
+    # Optional SMART/NVMe telemetry. This is an explainable risk signal for
+    # placement/evacuation, not a promise to predict disk failure.
+    disk_telemetry:
+      enabled: false
+      interval: 15m
+      smartctl_path: smartctl
+      nvme_path: nvme
+      device: "" # e.g. /dev/nvme0 or /dev/sda
+      max_temperature_c: 70
+      max_percentage_used: 90
+      max_media_errors: 0
+      risk_threshold: 60
+
+    # Bounded deterministic daily sampling. A corrupt object is considered
+    # repaired only if the reconstructed file matches its original SHA-256.
+    scrub:
+      enabled: false
+      interval: 24h
+      sample_objects: 100
+      repair: true
+      seed_salt: ""
+
+    # Safe copy-tier: hot CAS remains authoritative; verified copies can be
+    # written to HDD/cold_root and/or an immutable rclone destination.
+    tiering:
+      enabled: false
+      cold_root: ~/.repoark/cold-cas
+      min_age: 168h
+      min_bytes: 67108864
+      rclone_remote: ""
+
+    erasure:
+      enabled: false
+      min_object_bytes: 4294967296 # 4 GiB
+      data_shards: 6
+      parity_shards: 3
+      block_bytes: 1048576
+      # v0.8 can distribute shard CAS objects between storage agents.
+      distributed: false
+      shard_replication: 1
+      failure_domain_label: zone
+      min_failure_domains: 2
+      shard_pool_label: cas_pool
+      reconcile_interval: 5m
+
+  # Optional two-person restore workflow. Local operator identity is resolved
+  # from the OS account; production deployments should combine this with
+  # restricted host access and external identity/audit controls.
+  restore_approval:
+    enabled: false
+    approval_ttl: 30m
+    require_distinct_approver: true
+    requesters: []
+    approvers: []
+
+  # Browser recovery wizard. RepoArk delegates password/WebAuthn/MFA to the
+  # OIDC provider; required_amr is checked for approve/schedule step-up.
+  web_auth:
+    enabled: false
+    mode: oidc
+    issuer: https://id.example.com/realms/repoark
+    client_id: repoark
+    client_secret_env: REPOARK_OIDC_CLIENT_SECRET
+    redirect_url: https://repoark.example.com/auth/callback
+    session_key_env: REPOARK_SESSION_KEY
+    group_claim: groups
+    scopes: [profile, email, groups]
+    step_up_acr_values: [] # e.g. [urn:example:phishing-resistant]
+    viewer_groups: [repoark-viewers]
+    operator_groups: [repoark-operators]
+    admin_groups: [repoark-admins]
+    required_amr: [webauthn]
+    secure_cookies: true
+
+daemon:
+  interval: 24h
+  run_on_start: true
+
+security:
+  require_verification: true
+  sign_manifests: true
+  signing_key_path: ~/.config/repoark/manifest-ed25519.key
+  # Optional independent hardware/cloud trust anchor. Local Ed25519 remains
+  # available for offline verification even when KMS/network is unavailable.
+  kms_attestation:
+    enabled: false
+    key_id: ""
+    signing_algorithm: ED25519_SHA_512
+    region: ""
+    profile: ""
+    endpoint_url: ""
+    require_valid: true
+
+audit:
+  enabled: true
+  required: false
+  path: ~/.repoark/audit/ledger.jsonl
+
+fleet:
+  enabled: false
+  concurrency: 2
+  accounts:
+    # - name: personal
+    #   token_env: GITHUB_PERSONAL_TOKEN
+    #   api_url: https://api.github.com
+    #   graphql_url: https://api.github.com/graphql
+    #   backup_root: ~/.repoark/backups/personal
+    #   clone_protocol: https
+    # - name: work-ghes
+    #   token_env: GITHUB_WORK_TOKEN
+    #   api_url: https://github.example.com/api/v3
+    #   graphql_url: https://github.example.com/api/graphql
+    #   backup_root: ~/.repoark/backups/work
+
+offsite:
+  enabled: false
+  backend: restic # restic or rclone
+  repository_env: RESTIC_REPOSITORY
+  password_env: RESTIC_PASSWORD
+  rclone_remote: "" # e.g. minio:repoark or s3:repoark
+  keep_daily: 7
+  keep_weekly: 8
+  keep_monthly: 12
+  prune: true
+  object_lock:
+    enabled: false
+    bucket: ""
+    prefix: repoark
+    region: ""
+    endpoint_url: ""
+    profile: ""
+    require_enabled: true
+    expected_mode: GOVERNANCE
+    min_retention_days: 30
+
+recovery_drill:
+  enabled: false
+  sample_size: 3
+  work_dir: ~/.repoark/drills
+  verify_refs: true
+  keep_on_failure: true
+
+# RPO = maximum age of protected copies/drills. RTO = maximum observed
+# duration of a successful restore drill. Empty values disable a gate.
+policy:
+  enabled: true
+  enforce_in_health: true
+  max_backup_age: 30h
+  max_failed_repositories: 0
+  max_warnings: -1
+  require_signed_manifest: true
+  require_audit: false
+  max_recovery_drill_age: ""
+  max_recovery_drill_duration: ""
+  max_gitlab_drill_age: ""
+  max_gitlab_drill_duration: ""
+  max_offsite_age: ""
+
+observability:
+  enabled: false
+  listen: 127.0.0.1:9787
+
+notifications:
+  enabled: false
+  on_success: false
+  on_failure: true
+  webhook_env: REPOARK_WEBHOOK_URL
+  telegram_token_env: REPOARK_TELEGRAM_TOKEN
+  telegram_chat_id_env: REPOARK_TELEGRAM_CHAT_ID

@@ -1,0 +1,14 @@
+[Unit]
+Description=RepoArk GitHub backup daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/repoark daemon
+Restart=on-failure
+RestartSec=30
+EnvironmentFile=-%h/.config/repoark/repoark.env
+
+[Install]
+WantedBy=default.target
