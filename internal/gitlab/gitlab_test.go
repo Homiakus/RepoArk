@@ -60,3 +60,28 @@ func TestBackupMetaIncludesArchiveChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRemoteBackupCommandExportsRestrictedContainerFilesViaDockerCP(t *testing.T) {
+	cmd := remoteBackupCommand("repoark-gitlab", "/tmp/repoark backup.tar.gz", "/tmp/repoark stage")
+	for _, want := range []string{
+		"docker exec repoark-gitlab gitlab-backup create",
+		"docker cp repoark-gitlab:/etc/gitlab/.",
+		"docker cp repoark-gitlab:/var/opt/gitlab/backups/.",
+		"chmod 600 '/tmp/repoark backup.tar.gz'",
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("remote backup command missing %q:\n%s", want, cmd)
+		}
+	}
+	if strings.Contains(cmd, "cd ~/repoark-gitlab && tar") {
+		t.Fatalf("remote backup command still archives bind mounts directly:\n%s", cmd)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	got := shellQuote("a'b c")
+	want := `'a'"'"'b c'`
+	if got != want {
+		t.Fatalf("shellQuote = %q, want %q", got, want)
+	}
+}

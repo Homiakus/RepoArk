@@ -151,7 +151,8 @@ func (m *Manager) Backup(ctx context.Context, remote string) (string, error) {
 	}
 	if remote != "" {
 		remoteArchive := "/tmp/repoark-gitlab-" + stamp + ".tar.gz"
-		backupCmd := fmt.Sprintf("docker exec %s gitlab-backup create && cd ~/repoark-gitlab && tar -czf %s compose.yml config data/backups", shellSafe(g.Container), remoteArchive)
+		remoteStage := "/tmp/repoark-gitlab-export-" + stamp
+		backupCmd := remoteBackupCommand(g.Container, remoteArchive, remoteStage)
 		if _, err := execx.Run(ctx, "", nil, "ssh", remote, backupCmd); err != nil {
 			return "", err
 		}
@@ -163,27 +164,85 @@ func (m *Manager) Backup(ctx context.Context, remote string) (string, error) {
 		if _, err := execx.Run(ctx, "", nil, "scp", remote+":"+remoteArchive, local); err != nil {
 			return "", err
 		}
-		_, _ = execx.Run(ctx, "", nil, "ssh", remote, "rm -f "+remoteArchive)
+		_, _ = execx.Run(ctx, "", nil, "ssh", remote, "rm -f "+shellQuote(remoteArchive))
+		if err := os.Chmod(local, 0o600); err != nil {
+			return "", err
+		}
 		if err := m.writeBackupMeta(local); err != nil {
 			return "", err
 		}
 		return local, nil
 	}
-	if _, err := execx.Run(ctx, "", nil, "docker", "exec", g.Container, "gitlab-backup", "create"); err != nil {
-		return "", err
+	if !execx.Exists("docker") {
+		return "", errors.New("docker is required for GitLab backup")
 	}
-	out := filepath.Join(g.DataDir, "exports", "repoark-gitlab-"+stamp+".tar.gz")
 	if !execx.Exists("tar") {
 		return "", errors.New("tar executable is required for GitLab config export")
 	}
-	_, err := execx.Run(ctx, g.DataDir, nil, "tar", "-czf", out, "config", "data/backups")
+	if _, err := execx.Run(ctx, "", nil, "docker", "exec", g.Container, "gitlab-backup", "create"); err != nil {
+		return "", err
+	}
+	outDir := filepath.Join(g.DataDir, "exports")
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		return "", err
+	}
+	stage, err := os.MkdirTemp(outDir, ".repoark-gitlab-export-")
 	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(stage)
+	configDir := filepath.Join(stage, "config")
+	backupDir := filepath.Join(stage, "data", "backups")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		return "", err
+	}
+	// GitLab intentionally stores secrets and application backups with
+	// restrictive ownership/modes inside the container. Reading the bind mounts
+	// directly as the RepoArk host user is therefore unreliable. docker cp asks
+	// the Docker daemon to export the files and materializes them as the invoking
+	// host user, preserving the archive layout without weakening source modes.
+	if _, err := execx.Run(ctx, "", nil, "docker", "cp", g.Container+":/etc/gitlab/.", configDir); err != nil {
+		return "", err
+	}
+	if _, err := execx.Run(ctx, "", nil, "docker", "cp", g.Container+":/var/opt/gitlab/backups/.", backupDir); err != nil {
+		return "", err
+	}
+	out := filepath.Join(outDir, "repoark-gitlab-"+stamp+".tar.gz")
+	if _, err := execx.Run(ctx, stage, nil, "tar", "-czf", out, "config", "data/backups"); err != nil {
+		return out, err
+	}
+	if err := os.Chmod(out, 0o600); err != nil {
 		return out, err
 	}
 	if err := m.writeBackupMeta(out); err != nil {
 		return "", err
 	}
 	return out, nil
+}
+
+func remoteBackupCommand(container, archive, stage string) string {
+	container = shellSafe(container)
+	qArchive := shellQuote(archive)
+	qStage := shellQuote(stage)
+	return fmt.Sprintf(
+		"set -eu; rm -rf %s; mkdir -p %s/config %s/data/backups; trap 'rm -rf %s' EXIT; "+
+			"docker exec %s gitlab-backup create; "+
+			"docker cp %s:/etc/gitlab/. %s/config; "+
+			"docker cp %s:/var/opt/gitlab/backups/. %s/data/backups; "+
+			"if [ -f ~/repoark-gitlab/compose.yml ]; then cp ~/repoark-gitlab/compose.yml %s/compose.yml; fi; "+
+			"if [ -f %s/compose.yml ]; then tar -C %s -czf %s compose.yml config data/backups; else tar -C %s -czf %s config data/backups; fi; "+
+			"chmod 600 %s",
+		qStage, qStage, qStage, qStage,
+		container,
+		container, qStage,
+		container, qStage,
+		qStage,
+		qStage, qStage, qArchive, qStage, qArchive,
+		qArchive,
+	)
 }
 
 type BackupMeta struct {
@@ -451,6 +510,10 @@ func shellSafe(s string) string {
 		}
 		return -1
 	}, s)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 func ParsePort(s string, fallback int) int {

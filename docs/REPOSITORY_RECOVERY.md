@@ -36,17 +36,25 @@ The recovery is evaluated against these gates using real dependencies:
 5. `go build -trimpath ./cmd/repoark` — **PASS**
 6. SQLite/PostgreSQL integration tests — **PASS**
 7. distributed-storage/HA chaos tests — **PASS**
-8. disposable full GitLab backup + restore drill — **IN PROGRESS after one integration fix**
+8. disposable full GitLab backup + restore drill — **IN PROGRESS after two integration fixes**
 9. fresh source checksum inventory from the final verified tree — **PENDING gate 8**
 
 Linux and Windows amd64 cross-builds also pass.
 
-## GitLab restore-drill finding
+## GitLab restore-drill findings
+
+### 1. Docker-published monitoring endpoint false negative
 
 The first real recovered GitLab drill started a functioning GitLab CE 19.2.4 instance, but the integration harness waited on `/-/health` through a Docker-published port. GitLab returned 404 because monitoring endpoints are IP-allowlisted by default and the request arrived from the Docker bridge rather than container localhost.
 
 The source wait and the disposable restore-target wait now use the external `/users/sign_in` readiness path. A regression test reproduces the important condition: `/-/health` may return 404 while the externally reachable GitLab application is ready.
 
-A corrected full destructive drill has been launched. This document deliberately does not call the GitLab gate successful until that workflow completes the application backup, isolated restore and `gitlab:check SANITIZE=true` sequence.
+### 2. Host-side archive permission failure
+
+The second real drill advanced through source GitLab readiness and `gitlab-backup create`, then failed when RepoArk attempted to archive the bind-mounted `config` and `data/backups` paths directly from the host. GitLab correctly stores secrets, SSH host keys and application backups with restrictive root/git ownership, so a normal RepoArk user cannot reliably read those bind mounts.
+
+Backup export now stages `/etc/gitlab` and `/var/opt/gitlab/backups` with `docker cp`, then creates the outer archive from the user-owned staging tree and forces the resulting sensitive archive to mode `0600`. The remote GitLab backup path uses the same Docker-mediated export model instead of host-side reads of the bind mounts.
+
+A new full destructive drill is required to prove the complete application backup, isolated restore and `gitlab:check SANITIZE=true` sequence. This document deliberately does not call the GitLab gate successful until that workflow completes.
 
 Do not use `SOURCE_SHA256SUMS.HISTORICAL.txt` as an assertion that reconstructed files match the original lost bytes.
