@@ -23,13 +23,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Recover module checksums
+      - name: Download dependencies
+        run: go mod download
+      - name: Verify module files
         shell: bash
         run: |
           go mod tidy
-          echo '=== REPOARK_GO_SUM_BEGIN ==='
-          cat go.sum
-          echo '=== REPOARK_GO_SUM_END ==='
+          git diff --exit-code -- go.mod go.sum
       - name: Check formatting
         shell: bash
         run: |
