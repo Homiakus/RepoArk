@@ -54,6 +54,7 @@ trap cleanup EXIT
 
 echo "Waiting for source GitLab..."
 deadline=$((SECONDS + 1800))
+# Probe through the published HTTP path used by the backup/restore client.
 # GitLab monitoring endpoints such as /-/health are localhost-allowlisted by
 # default. Through a Docker-published port the request originates from the
 # bridge address, so use the external user-facing sign-in page instead.
