@@ -2,6 +2,12 @@ name: GitLab Restore Drill
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'internal/gitlab/**'
+      - 'scripts/integration-gitlab-drill.sh'
+      - '.github/workflows/gitlab-restore-drill.yml'
   schedule:
     - cron: '17 3 * * 0'
 
