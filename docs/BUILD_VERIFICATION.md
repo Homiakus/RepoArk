@@ -1,43 +1,48 @@
 # RepoArk v0.8 Build Verification
 
-## Verification performed in this environment
+## Verified recovery build
 
-The release source tree targets Go 1.25.0. The execution environment used to assemble this artifact has Go 1.23.x and cannot reach `proxy.golang.org`, so a real dependency download/build cannot be truthfully claimed here.
+RepoArk targets Go 1.25.0. The recovered source tree has now been built and tested on GitHub-hosted runners with the real module graph and the committed `go.sum`; no API-compatible dependency stubs or temporary `replace` directives are involved in the current verification.
 
-To still verify RepoArk's own code, an isolated test copy was created with API-compatible local stubs for external modules only. Those stubs and `replace` directives are **not present in the release tree**.
-
-The synchronized v0.8 source passed:
+The recovered tree has passed the following gates with Go 1.25.0:
 
 ```text
-go test ./...                              PASS
-go vet ./...                               PASS
-go test -race ./internal/controlplane      PASS
-go test -race ./internal/cas               PASS
-go test -race ./internal/cassync           PASS
-go test -race ./internal/erasure            PASS
-go test -race ./internal/scrub              PASS
-go test -race ./internal/storagehealth      PASS
-go test -race ./internal/tiering            PASS
-go test -race ./internal/replication        PASS
-go test -race ./internal/generation         PASS
-go test -race ./internal/observability      PASS
-go test -race ./internal/webauth            PASS
+go mod download                           PASS
+go mod tidy + clean-tree check            PASS
+gofmt clean-tree check                    PASS
+go vet ./...                              PASS
+go test ./...                             PASS
+race test suite                           PASS
+go build -trimpath ./cmd/repoark          PASS
+Linux amd64 cross-build                   PASS
+Windows amd64 cross-build                 PASS
+SQLite integration                        PASS
+PostgreSQL 17 integration                 PASS
+distributed-storage repeated race tests   PASS
+HA chaos repeated tests                   PASS
 ```
 
-The final release tree is also checked with `gofmt`, source hygiene scans, SHA-256 source inventory, and ZIP integrity verification.
+The general CI also verifies that `go mod tidy` does not change `go.mod` or `go.sum`. Normal builds use the committed lock data via `go mod download`; `go mod tidy` is a maintenance/invariance check, not a required mutation before every build.
 
 ## Database migration verification
 
 The v0.8 SQL migration is additive and advances `repoark_meta.schema_version` to `5`. The migration adds durable object refs/owners/leases, erasure sets/shard copies, and disk telemetry columns while preserving the previous generation/replication/job tables.
 
-CI retains real Go 1.25 SQLite/PostgreSQL integration gates. The PostgreSQL workflow uses PostgreSQL 17 and the real pgx driver.
+The PostgreSQL workflow runs the real pgx-backed integration suite against PostgreSQL 17. SQLite integration remains covered by the same control-plane integration gate.
 
-## Real dependency build gate
+## Disaster-recovery verification
 
-On a networked Go 1.25 machine, run:
+The repository contains a separate slow GitLab application backup/restore workflow using the pinned `gitlab/gitlab-ce:19.2.4-ce.0` image. The first recovered run exposed a real integration defect: polling GitLab's `/-/health` endpoint through a Docker-published port returned 404 because GitLab monitoring endpoints are IP-allowlisted and the request arrived from the Docker bridge address.
+
+The recovery code now probes the external `/users/sign_in` path instead, both when waiting for the source GitLab and when waiting for the disposable restore target. A regression test covers the case where `/-/health` returns 404 while the external sign-in path is ready.
+
+The corrected full disposable GitLab backup → restore → `gitlab:check SANITIZE=true` run is a separate release gate. Do not mark that gate PASS until the workflow itself completes successfully.
+
+## Reproduction
+
+On a networked Go 1.25 machine:
 
 ```bash
-go mod tidy
 go mod download
 go test ./...
 go vet ./...
@@ -46,4 +51,4 @@ go test -race ./internal/controlplane ./internal/cas ./internal/cassync ./intern
 go build -trimpath -o repoark ./cmd/repoark
 ```
 
-The repository CI also contains separate PostgreSQL, distributed-storage, HA chaos, and full disposable GitLab restore-drill workflows.
+For the full GitLab disaster-recovery gate, use the scheduled/manual `GitLab Restore Drill` workflow or run `scripts/integration-gitlab-drill.sh` on a Docker-capable host.

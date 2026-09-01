@@ -1,8 +1,10 @@
 # Repository recovery status
 
-RepoArk's public `main` branch was imported without several files referenced by the release documentation and `SOURCE_SHA256SUMS.txt`.
+RepoArk's public `main` branch was imported without several files referenced by the release documentation and the original source checksum inventory.
 
-## Confirmed missing from the imported tree
+## Files missing from the imported tree
+
+The imported tree was missing:
 
 - `cmd/repoark/main.go`
 - `.github/workflows/ci.yml`
@@ -11,26 +13,40 @@ RepoArk's public `main` branch was imported without several files referenced by 
 - `.github/workflows/gitlab-restore-drill.yml`
 - `.github/workflows/ha-chaos.yml`
 
-The stale `.repoark-bootstrap` marker also remained in the imported tree, indicating that the intended full-tree import did not complete.
+The stale `.repoark-bootstrap` marker also remained, indicating that the intended full-tree import had not completed.
 
-## Recovery policy
+All six missing paths have now been reconstructed from the surviving implementation, Makefile, integration tests, recovery scripts and release documentation. `.repoark-bootstrap` has been removed and a canonical `go.sum` has been generated with Go 1.25 against the real dependency graph.
 
-The files above are being reconstructed from the current implementation, Makefile, integration tests, recovery scripts and release documentation. Reconstructed files are **not claimed to be byte-for-byte identical** to the files whose SHA-256 hashes are recorded in `SOURCE_SHA256SUMS.txt`.
+A complete review of the original checksum inventory found no additional missing v0.8 source paths.
 
-`SOURCE_SHA256SUMS.txt` is retained as historical evidence of the intended source tree until either the original files are recovered or a new verified source inventory is generated after a clean Go 1.25 build and CI pass.
+## Provenance policy
+
+The reconstructed files are **not claimed to be byte-for-byte identical** to the lost originals. The old checksum inventory has therefore been retained as `SOURCE_SHA256SUMS.HISTORICAL.txt`; it is evidence of the intended imported tree, not an integrity assertion for the reconstructed files.
+
+A deterministic generator is available at `scripts/generate-source-checksums.sh`. A new `SOURCE_SHA256SUMS.txt` must be generated only after the recovered tree has passed all release gates and after all recovery-related source/documentation changes are complete.
 
 ## Recovery gates
 
-A recovered tree is not considered release-ready until all of the following pass with real dependencies:
+The recovery is evaluated against these gates using real dependencies:
 
-1. `go mod download`
-2. `go test ./...`
-3. `go vet ./...`
-4. race tests
-5. `go build -trimpath ./cmd/repoark`
-6. SQLite/PostgreSQL integration tests
-7. distributed-storage/HA chaos tests
-8. disposable full GitLab backup + restore drill
-9. fresh source checksum inventory generated from the verified commit
+1. `go mod download` — **PASS**
+2. `go test ./...` — **PASS**
+3. `go vet ./...` — **PASS**
+4. race tests — **PASS**
+5. `go build -trimpath ./cmd/repoark` — **PASS**
+6. SQLite/PostgreSQL integration tests — **PASS**
+7. distributed-storage/HA chaos tests — **PASS**
+8. disposable full GitLab backup + restore drill — **IN PROGRESS after one integration fix**
+9. fresh source checksum inventory from the final verified tree — **PENDING gate 8**
 
-Do not use the historical checksum file as an assertion that reconstructed files match the original lost bytes.
+Linux and Windows amd64 cross-builds also pass.
+
+## GitLab restore-drill finding
+
+The first real recovered GitLab drill started a functioning GitLab CE 19.2.4 instance, but the integration harness waited on `/-/health` through a Docker-published port. GitLab returned 404 because monitoring endpoints are IP-allowlisted by default and the request arrived from the Docker bridge rather than container localhost.
+
+The source wait and the disposable restore-target wait now use the external `/users/sign_in` readiness path. A regression test reproduces the important condition: `/-/health` may return 404 while the externally reachable GitLab application is ready.
+
+A corrected full destructive drill has been launched. This document deliberately does not call the GitLab gate successful until that workflow completes the application backup, isolated restore and `gitlab:check SANITIZE=true` sequence.
+
+Do not use `SOURCE_SHA256SUMS.HISTORICAL.txt` as an assertion that reconstructed files match the original lost bytes.
