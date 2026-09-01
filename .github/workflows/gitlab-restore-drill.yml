@@ -1,6 +1,11 @@
 name: GitLab Restore Drill
 
 on:
+  push:
+    paths:
+      - 'internal/gitlab/gitlab.go'
+      - 'internal/gitlab/gitlab_test.go'
+      - 'scripts/integration-gitlab-drill.sh'
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * 0'
