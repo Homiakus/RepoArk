@@ -1,0 +1,33 @@
+name: GitLab Restore Drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repoark-gitlab-restore-drill
+  cancel-in-progress: false
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      REPOARK_GITLAB_IMAGE: gitlab/gitlab-ce:19.2.4-ce.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - name: Build RepoArk
+        run: go build -trimpath -o repoark ./cmd/repoark
+      - name: Verify Docker
+        run: docker version && docker compose version
+      - name: Disposable GitLab backup and restore drill
+        run: bash scripts/integration-gitlab-drill.sh

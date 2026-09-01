@@ -1,0 +1,35 @@
+name: HA Chaos
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - name: Control-plane chaos loop
+        run: >-
+          go test -race -count=20
+          -run 'TestChaos|TestReplicationPlacement|TestReplicationHealth|TestSelectRestoreAffinity|TestExpiredReplicationTransfer'
+          ./internal/controlplane
+      - name: Storage subsystem repetition
+        run: >-
+          go test -race -count=10
+          ./internal/replication
+          ./internal/cassync
+          ./internal/erasure
+          ./internal/objectinventory
+          ./internal/storagehealth

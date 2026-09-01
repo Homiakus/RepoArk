@@ -1,0 +1,33 @@
+name: Distributed Storage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distributed-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - name: Distributed storage and recovery tests
+        run: >-
+          go test -race -count=5
+          ./internal/controlplane
+          ./internal/replication
+          ./internal/cassync
+          ./internal/erasure
+          ./internal/objectinventory
+          ./internal/storagehealth
+          ./internal/scrub
+          ./internal/tiering
