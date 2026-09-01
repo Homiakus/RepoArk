@@ -181,7 +181,12 @@ func (m *Manager) RestoreDrill(ctx context.Context, archive string, emit func(st
 
 func waitGitLabHTTP(ctx context.Context, port int) error {
 	client := &http.Client{Timeout: 5 * time.Second}
-	url := fmt.Sprintf("http://127.0.0.1:%d/-/health", port)
+	// Monitoring endpoints such as /-/health are allowlisted to localhost by
+	// default. A request through a Docker-published port arrives from the bridge
+	// address and can therefore return 404 even when GitLab is fully healthy.
+	// The sign-in page is an external user-facing readiness signal and works
+	// through the same network path that operators and restore clients use.
+	url := fmt.Sprintf("http://127.0.0.1:%d/users/sign_in", port)
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	for {

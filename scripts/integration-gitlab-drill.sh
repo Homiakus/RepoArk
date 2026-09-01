@@ -54,9 +54,12 @@ trap cleanup EXIT
 
 echo "Waiting for source GitLab..."
 deadline=$((SECONDS + 1800))
-until curl -fsS "http://127.0.0.1:${SOURCE_HTTP}/-/health" >/dev/null 2>&1; do
+# GitLab monitoring endpoints such as /-/health are localhost-allowlisted by
+# default. Through a Docker-published port the request originates from the
+# bridge address, so use the external user-facing sign-in page instead.
+until curl -fsS "http://127.0.0.1:${SOURCE_HTTP}/users/sign_in" >/dev/null 2>&1; do
   if (( SECONDS >= deadline )); then
-    echo "Source GitLab did not become healthy" >&2
+    echo "Source GitLab did not become ready" >&2
     docker logs repoark-gitlab-it-source --tail 200 || true
     exit 1
   fi
