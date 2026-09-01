@@ -67,6 +67,7 @@ until curl -fsS "http://127.0.0.1:${SOURCE_HTTP}/users/sign_in" >/dev/null 2>&1;
   sleep 10
 done
 
+# This also proves that restricted GitLab config/backup files are exported via Docker.
 "$BIN" --config "$CFG" gitlab backup
 archive="$(find "$DATA/exports" -maxdepth 1 -type f -name 'repoark-gitlab-*.tar.gz' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
 if [[ -z "$archive" || ! -f "$archive" ]]; then
