@@ -23,6 +23,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Verify source checksum inventory
+        shell: bash
+        run: |
+          bash scripts/generate-source-checksums.sh > /tmp/SOURCE_SHA256SUMS.current.txt
+          if ! cmp -s /tmp/SOURCE_SHA256SUMS.current.txt SOURCE_SHA256SUMS.txt; then
+            echo "::error::SOURCE_SHA256SUMS.txt is missing or stale. Regenerate it only from a fully verified source tree."
+            echo "----- BEGIN CURRENT SOURCE_SHA256SUMS.txt -----"
+            cat /tmp/SOURCE_SHA256SUMS.current.txt
+            echo "----- END CURRENT SOURCE_SHA256SUMS.txt -----"
+            if [[ -f SOURCE_SHA256SUMS.txt ]]; then
+              diff -u SOURCE_SHA256SUMS.txt /tmp/SOURCE_SHA256SUMS.current.txt || true
+            fi
+            exit 1
+          fi
       - name: Download dependencies
         run: go mod download
       - name: Verify module files
