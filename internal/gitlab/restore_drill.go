@@ -45,9 +45,6 @@ func (m *Manager) RestoreDrill(ctx context.Context, archive string, emit func(st
 	if !execx.Exists("docker") {
 		return report, errors.New("docker is required for GitLab restore drill")
 	}
-	if !execx.Exists("tar") {
-		return report, errors.New("tar is required for GitLab restore drill")
-	}
 	if archive == "" {
 		archive, err = latestGitLabArchive(filepath.Join(g.DataDir, "exports"))
 		if err != nil {
@@ -57,19 +54,8 @@ func (m *Manager) RestoreDrill(ctx context.Context, archive string, emit func(st
 	if _, err := os.Stat(archive); err != nil {
 		return report, err
 	}
-	if meta, metaErr := readBackupMeta(archive + ".meta.json"); metaErr == nil {
-		if meta.Image != "" && meta.Image != g.Image {
-			return report, fmt.Errorf("GitLab restore drill image mismatch: backup=%s configured=%s", meta.Image, g.Image)
-		}
-		if meta.SHA256 != "" {
-			sum, sumErr := gitlabFileSHA256(archive)
-			if sumErr != nil {
-				return report, sumErr
-			}
-			if !strings.EqualFold(sum, meta.SHA256) {
-				return report, errors.New("GitLab backup archive checksum mismatch")
-			}
-		}
+	if err := verifyGitLabBackupArchive(archive, g.Image); err != nil {
+		return report, err
 	}
 	if err := os.MkdirAll(d.WorkDir, 0o700); err != nil {
 		return report, err
@@ -91,7 +77,7 @@ func (m *Manager) RestoreDrill(ctx context.Context, archive string, emit func(st
 	defer func() { cleanup(err == nil) }()
 
 	emit("extracting GitLab application backup + configuration")
-	if _, err = execx.Run(ctx, "", nil, "tar", "-xzf", archive, "-C", work); err != nil {
+	if err = extractGitLabArchive(archive, work); err != nil {
 		return report, err
 	}
 	backupDir := filepath.Join(work, "data", "backups")

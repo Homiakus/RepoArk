@@ -339,6 +339,21 @@ type apiClient struct {
 	http        *http.Client
 }
 
+type apiStatusError struct {
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e *apiStatusError) Error() string {
+	return fmt.Sprintf("GitLab API %s returned %d: %s", e.Path, e.StatusCode, e.Body)
+}
+
+func isAPIStatus(err error, code int) bool {
+	var statusErr *apiStatusError
+	return errors.As(err, &statusErr) && statusErr.StatusCode == code
+}
+
 func (c apiClient) ensureNamespacedProject(ctx context.Context, fullName, sourceVisibility string) (Project, error) {
 	owner, repo, ok := strings.Cut(fullName, "/")
 	if !ok || strings.TrimSpace(owner) == "" || strings.TrimSpace(repo) == "" {
@@ -375,8 +390,12 @@ func (c apiClient) ensureNamespacedProject(ctx context.Context, fullName, source
 func (c apiClient) ensureGroup(ctx context.Context, path, displayName string) (Group, error) {
 	var g Group
 	encoded := url.PathEscape(path)
-	if err := c.doJSON(ctx, http.MethodGet, "/api/v4/groups/"+encoded, nil, &g, 200); err == nil {
+	err := c.doJSON(ctx, http.MethodGet, "/api/v4/groups/"+encoded, nil, &g, 200)
+	if err == nil {
 		return g, nil
+	}
+	if !isAPIStatus(err, http.StatusNotFound) {
+		return g, err
 	}
 	body, _ := json.Marshal(map[string]any{"name": displayName, "path": path, "visibility": "private"})
 	if err := c.doJSON(ctx, http.MethodPost, "/api/v4/groups", body, &g, 201); err != nil {
@@ -391,11 +410,12 @@ func (c apiClient) findProjectByFullPath(ctx context.Context, fullPath string) (
 	if err == nil {
 		return p, true, nil
 	}
-	// GET by full path returns 404 when absent. Avoid coupling doJSON to a
-	// special status type by falling back to search only for this lookup.
+	if !isAPIStatus(err, http.StatusNotFound) {
+		return p, false, err
+	}
 	q := url.Values{"search": []string{filepath.Base(fullPath)}, "simple": []string{"true"}, "per_page": []string{"100"}}
 	var list []Project
-	if err2 := c.doJSON(ctx, http.MethodGet, "/api/v4/projects?"+q.Encode(), nil, &list, 200); err2 != nil {
+	if err := c.doJSON(ctx, http.MethodGet, "/api/v4/projects?"+q.Encode(), nil, &list, 200); err != nil {
 		return p, false, err
 	}
 	for _, candidate := range list {
@@ -478,7 +498,7 @@ func (c apiClient) doJSON(ctx context.Context, method, path string, body []byte,
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode != want {
-		return fmt.Errorf("GitLab API %s returned %d: %s", path, resp.StatusCode, strings.TrimSpace(string(b)))
+		return &apiStatusError{Path: path, StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}
 	if dst != nil {
 		return json.Unmarshal(b, dst)

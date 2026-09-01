@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -97,16 +98,30 @@ func New(ctx context.Context, cfg config.WebAuthConfig) (*Manager, error) {
 	return &Manager{cfg: cfg, oauth: oauth2.Config{ClientID: cfg.ClientID, ClientSecret: secret, Endpoint: provider.Endpoint(), RedirectURL: cfg.RedirectURL, Scopes: oidcScopes(cfg.Scopes)}, verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}), aead: aead}, nil
 }
 
-func (m *Manager) Login(w http.ResponseWriter, r *http.Request) { m.beginLogin(w, r, false) }
+func (m *Manager) Login(w http.ResponseWriter, r *http.Request) {
+	if err := m.beginLogin(w, r, false); err != nil {
+		http.Error(w, "authentication initialization failed", http.StatusInternalServerError)
+	}
+}
 
 // StepUp starts a fresh provider authentication ceremony. RepoArk still does
 // not implement WebAuthn itself; the IdP owns the ceremony and must reflect the
 // achieved assurance in amr/acr claims consumed after callback.
-func (m *Manager) StepUp(w http.ResponseWriter, r *http.Request) { m.beginLogin(w, r, true) }
+func (m *Manager) StepUp(w http.ResponseWriter, r *http.Request) {
+	if err := m.beginLogin(w, r, true); err != nil {
+		http.Error(w, "authentication initialization failed", http.StatusInternalServerError)
+	}
+}
 
-func (m *Manager) beginLogin(w http.ResponseWriter, r *http.Request, stepUp bool) {
-	state := randomToken(32)
-	nonce := randomToken(32)
+func (m *Manager) beginLogin(w http.ResponseWriter, r *http.Request, stepUp bool) error {
+	state, err := randomToken(32)
+	if err != nil {
+		return err
+	}
+	nonce, err := randomToken(32)
+	if err != nil {
+		return err
+	}
 	verifier := oauth2.GenerateVerifier()
 	setOIDCTempCookie(w, m.cfg, "repoark_oidc_state", state)
 	setOIDCTempCookie(w, m.cfg, "repoark_oidc_nonce", nonce)
@@ -119,6 +134,7 @@ func (m *Manager) beginLogin(w http.ResponseWriter, r *http.Request, stepUp bool
 		}
 	}
 	http.Redirect(w, r, m.oauth.AuthCodeURL(state, opts...), http.StatusFound)
+	return nil
 }
 
 func (m *Manager) Callback(w http.ResponseWriter, r *http.Request) error {
@@ -188,7 +204,11 @@ func (m *Manager) Callback(w http.ResponseWriter, r *http.Request) error {
 	if !sessionExpiry.After(now) {
 		return errors.New("OIDC id_token is already expired")
 	}
-	ident := Identity{Subject: claims.Subject, CSRF: randomToken(24), Email: claims.Email, Groups: claims.Groups, AMR: claims.AMR, ACR: claims.ACR, Role: role.String(), Expires: sessionExpiry.Unix()}
+	csrf, err := randomToken(24)
+	if err != nil {
+		return err
+	}
+	ident := Identity{Subject: claims.Subject, CSRF: csrf, Email: claims.Email, Groups: claims.Groups, AMR: claims.AMR, ACR: claims.ACR, Role: role.String(), Expires: sessionExpiry.Unix()}
 	sealed, err := m.seal(ident)
 	if err != nil {
 		return err
@@ -340,10 +360,19 @@ func (m *Manager) open(v string) (Identity, error) {
 	}
 	return id, nil
 }
-func randomToken(n int) string {
+func randomToken(n int) (string, error) {
+	return randomTokenFrom(rand.Reader, n)
+}
+
+func randomTokenFrom(r io.Reader, n int) (string, error) {
+	if n <= 0 {
+		return "", errors.New("random token length must be positive")
+	}
 	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
+	if _, err := io.ReadFull(r, b); err != nil {
+		return "", fmt.Errorf("generate random token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func oidcScopes(configured []string) []string {
