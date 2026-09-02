@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,31 @@ func TestSignedCheckpointDetectsLedgerRewrite(t *testing.T) {
 	}
 	if err := VerifyCheckpoint(p, key+".pub"); err == nil {
 		t.Fatal("stale signed checkpoint unexpectedly accepted")
+	}
+}
+
+func TestAppendWithCheckpointPinsExactlyReturnedHead(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "audit.jsonl")
+	key := filepath.Join(root, "audit.key")
+
+	r, err := AppendWithCheckpoint(p, key, "backup", "a/b", "ok", "atomic", map[string]any{"request_id": "r-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(p + ".checkpoint.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cp Checkpoint
+	if err := json.Unmarshal(b, &cp); err != nil {
+		t.Fatal(err)
+	}
+	if cp.Seq != r.Seq || !strings.EqualFold(cp.Hash, r.Hash) {
+		t.Fatalf("checkpoint head=%d/%s want appended=%d/%s", cp.Seq, cp.Hash, r.Seq, r.Hash)
+	}
+	if err := VerifyCheckpoint(p, key+".pub"); err != nil {
+		t.Fatalf("checkpoint for appended record should verify: %v", err)
 	}
 }
 
