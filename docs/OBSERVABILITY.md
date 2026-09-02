@@ -1,26 +1,43 @@
-# Observability and notifications
+# Observability, browser console and notifications
 
-RepoArk v0.4 can expose a small read-only HTTP endpoint from the standard library.
-The default listener is loopback-only: `127.0.0.1:9787`.
+RepoArk exposes operational telemetry and the embedded browser console from the Go HTTP service. The default listener is loopback-only: `127.0.0.1:9787`.
 
-Endpoints:
+Read-oriented endpoints include:
 
 - `GET /healthz` — 200 only when the latest manifest is readable/valid and all enabled recovery policy gates pass; otherwise 503.
 - `GET /readyz` — same conservative readiness contract.
-- `GET /metrics` — Prometheus text exposition for repository/platform counts, CAS, policy, audit, last-backup time and process uptime.
+- `GET /metrics` — Prometheus text exposition for repository/platform counts, CAS, policy, audit, control-plane state, last-backup time and process uptime.
 - `GET /api/v1/status` — JSON view of the latest manifest plus policy state.
 - `GET /api/v1/fleet` — per-account fleet state.
 - `GET /api/v1/policy` — RPO/RTO policy evaluation.
-- `GET /` — self-contained read-only fleet dashboard.
+- `GET /api/v1/control/*` — control-plane status, inventories and recovery state where enabled.
+- `GET /` — self-contained responsive RepoArk browser console.
 
-Run standalone:
+Interactive browser operations live under `/api/v1/console/*`. Job/log updates use Server-Sent Events, with reconnect-safe complete snapshots and low-frequency polling fallback. Only one interactive mutation runs at a time and cancellation propagates through the operation context into external subprocess trees.
+
+Run the primary browser console explicitly with:
 
 ```bash
-repoark serve
+repoark web
 ```
 
-When `observability.enabled: true`, `repoark daemon` starts the same endpoint automatically.
-Do not expose this listener directly to an untrusted network. Put authentication/TLS in a reverse proxy if remote access is required.
+Running `repoark` without a command starts the same console. `repoark tui` is a deprecated compatibility alias that also starts the web console; there is no separate terminal UI implementation.
+
+`repoark serve` remains available for the traditional observability server entrypoint, and `repoark daemon` starts observability automatically when `observability.enabled: true`.
+
+## Exposure and authentication
+
+Without `control_plane.web_auth`, the interactive console is restricted to an explicit loopback listen address and browser mutations are protected by loopback Host and same-origin checks. RepoArk rejects attempts to expose the unauthenticated interactive console on a wildcard/non-loopback address.
+
+For remote browser access, enable OIDC web authentication and terminate HTTPS at the intended reverse proxy. RepoArk reuses its encrypted OIDC session, group-to-role mapping, CSRF validation and optional AMR/ACR step-up evidence:
+
+- viewer — read-only;
+- operator — normal/elevated console operations;
+- admin + configured step-up — dangerous operations.
+
+The point-in-time recovery wizard is mounted at `/restore` with `/auth/*` when web authentication is enabled. Browser recovery remains constrained to the configured managed restore root.
+
+Every recognized browser mutation is correlated with actor/request IDs in the tamper-evident audit ledger. With `audit.required: true`, mutation fails closed when the required audit record cannot be persisted.
 
 ## Notifications
 
@@ -47,7 +64,7 @@ Generic webhook JSON:
 
 `/api/v1/fleet` reports the latest state for configured fleet accounts. When audit verification is configured as required, health checks also validate the ledger chain and its signed checkpoint. Prometheus output includes audit-chain validity, audit record count, Actions artifact totals and Projects v2 owner totals.
 
-## v0.6 HA metrics
+## HA metrics
 
 When the control-plane HA data plane is enabled, additional gauges are exposed:
 
@@ -60,17 +77,15 @@ repoark_control_replication_failure_domain_deficits
 repoark_control_restore_approvals_pending
 ```
 
-A raw replica count is not a health signal by itself. `replication_deficits` evaluates online ready copies against `min_healthy` and, when configured, distinct failure-domain labels. The TUI control line also shows ready replicas, active encrypted transfers and pending approvals.
+A raw replica count is not a health signal by itself. `replication_deficits` evaluates online ready copies against `min_healthy` and, when configured, distinct failure-domain labels. The browser console and control-plane APIs expose ready replicas, active encrypted transfers, pending approvals and degraded storage state.
 
-## v0.7 storage visibility
+## Distributed-storage visibility
 
-Agent state now also exposes storage health/capacity and compact CAS inventory information. The control API adds:
+Agent state exposes storage health/capacity and compact CAS inventory information. The control API includes:
 
 ```text
 GET /api/v1/control/inventories
 GET /api/v1/control/inventories?left=storage-a&right=storage-b
 ```
 
-The comparison reports whether the compact Merkle roots are equal and, when not equal, the divergent two-hex digest prefixes. TUI control status includes degraded/unhealthy storage-agent counts in addition to queue/replica/transfer/approval state.
-
-When `control_plane.web_auth.enabled=true`, authenticated browser recovery routes are mounted at `/restore` plus `/auth/*`. These are mutation-capable recovery routes, unlike the ordinary read-only status dashboard, and should be served only over HTTPS with a properly configured OIDC provider.
+The comparison reports whether compact Merkle roots are equal and, when not equal, the divergent two-hex digest prefixes. Storage-health, queue, replica, transfer and approval state are surfaced through the browser console, status APIs and Prometheus rather than a terminal UI.
