@@ -31,6 +31,32 @@ func TestLedgerDetectsTampering(t *testing.T) {
 	}
 }
 
+func TestAppendRefusesToExtendTamperedLedger(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "audit.jsonl")
+	if _, err := Append(p, "backup", "a/b", "ok", "trusted", nil); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := []byte(strings.Replace(string(before), "trusted", "altered", 1))
+	if err := os.WriteFile(p, tampered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Append(p, "verify", "a/b", "ok", "must not append", nil); err == nil {
+		t.Fatal("append unexpectedly extended a tampered audit ledger")
+	}
+	after, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(tampered) {
+		t.Fatal("failed append modified the tampered ledger")
+	}
+}
+
 func TestSignedCheckpointDetectsLedgerRewrite(t *testing.T) {
 	root := t.TempDir()
 	p := filepath.Join(root, "audit.jsonl")
@@ -52,6 +78,29 @@ func TestSignedCheckpointDetectsLedgerRewrite(t *testing.T) {
 	}
 }
 
+func TestWriteCheckpointRejectsTamperedLedger(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "audit.jsonl")
+	key := filepath.Join(root, "audit.key")
+	if _, err := Append(p, "backup", "a/b", "ok", "trusted", nil); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = []byte(strings.Replace(string(b), "trusted", "altered", 1))
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCheckpoint(p, key); err == nil {
+		t.Fatal("checkpoint unexpectedly signed a tampered ledger")
+	}
+	if _, err := os.Stat(p + ".checkpoint.json"); !os.IsNotExist(err) {
+		t.Fatalf("checkpoint file should not be committed after failed verification: %v", err)
+	}
+}
+
 func TestPinnedTrustAnchorRejectsRewrittenLedgerCheckpoint(t *testing.T) {
 	root := t.TempDir()
 	p := filepath.Join(root, "audit.jsonl")
@@ -67,10 +116,10 @@ func TestPinnedTrustAnchorRejectsRewrittenLedgerCheckpoint(t *testing.T) {
 		t.Fatalf("trusted checkpoint should verify: %v", err)
 	}
 
-	// Rewrite the ledger head and legitimately sign it with a different key.
-	// Replacing ledger-local checkpoint.pub is not enough: verification is pinned
-	// to the external trust anchor.
-	if _, err := Append(p, "verify", "a/b", "ok", "attacker rewrite", nil); err != nil {
+	// Rewriting an existing record is now rejected by Append itself. Extend the
+	// valid ledger first, then legitimately sign its new head with a different
+	// key to preserve the trust-anchor attack scenario.
+	if _, err := Append(p, "verify", "a/b", "ok", "attacker head", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := WriteCheckpoint(p, attackerKey); err != nil {
