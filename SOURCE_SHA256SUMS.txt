@@ -3,6 +3,7 @@ ba6aac7b14ec34b8f649af127616ceee181c3a3c46f27ecc234258013fee0be4  ./.github/work
 e6d10c43ba7898f31ab2793c57449843cdf139bcb86964d76e29196981c4af3b  ./.github/workflows/distributed-storage.yml
 1e53a7ca579fd8eae1b98fd43399fe14f548ccaa3df4169c63fc2fc9a7313cb3  ./.github/workflows/gitlab-restore-drill.yml
 8888368fe58cffc4aad147bc22af37b0ef376d2ba41ce19161dd8f9fd6fbd650  ./.github/workflows/ha-chaos.yml
+0ee8afab38ce739f9f6ccd2620ffd846fa6dc3acdebf1552c48cccba45eec3c6  ./.github/workflows/web-e2e.yml
 557c6b9b9f51ef1f58ef883d36b3996bfffbea500e3b691839f181b09b9c4396  ./.gitignore
 ea38cf708c1c8ba2fc171aa7e63b957b7e10bf59254c8285f6883ed32146c6d6  ./CHANGELOG.md
 df6025fbec810b1e902068d41d33631c6d1f96166ace62f79b2c1b18221076e7  ./LICENSE
@@ -45,7 +46,8 @@ dc28082eda6769fc2980620cda4d309bf6e3f08bcbcb97045ff3222268d6f7ac  ./docs/V0.5.0.
 c927524d15fe442ee04ae3b36dd06a82061b9b2e67abc145353a838f13ecdcdb  ./docs/V0.7.0.md
 e6715238a9a934cc333c8ebece84fd3e2f556d06d6603949bfe9fe63e11f317f  ./docs/V0.8.0.md
 cf82cd5255d06a219241f64bd54f75970eb1f8494f24ba79c15f51d5e4942e9a  ./docs/WEB_RECOVERY.md
-83e9ace0969ea4646d4601a53fa0d6d53d9a5338ae857f32003036fce0f98ef1  ./docs/WEB_UI_MIGRATION.md
+79d483de754e13b022626404f57f10bc1d03ca0cdca5225fa1fdb6c4e5aad548  ./docs/WEB_UI_MIGRATION.md
+17862de33181b29e65272e595dda1a7e53061ab70368c24cc77ba014e107e599  ./e2e/web-console-smoke.mjs
 27549e7abb0d5770be3065e55d18ef2539540a66b8604e051747c20170fc729a  ./go.mod
 5f36d60f2331d12140133a1523d54100fd94a0a893bff4ca57b50a50422ccd43  ./go.sum
 0de575428d65e1308370826abf32ad0b19d5605b3bc6d64796d5df23436afd10  ./internal/app/app.go

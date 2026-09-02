@@ -118,9 +118,11 @@ Hardening already completed in this phase:
 - HTTP regression tests for operation completion, rejection and cancellation;
 - local-origin/DNS-rebinding regression coverage;
 - SSE live job/log delivery with reconnect-safe full snapshots and polling fallback;
-- race coverage for the job/audit/event paths.
+- race coverage for the job/audit/event paths;
+- a real-browser Chromium CI gate that launches the compiled `repoark web` binary and verifies startup, routing, security headers, local session rendering, operation cards, SSE transport, polling suppression and a narrow mobile viewport;
+- failure diagnostics preserve the RepoArk server log and a full-page browser screenshot without adding Node.js to the runtime distribution.
 
-Remaining soak work should focus on true browser E2E tests, OIDC reverse-proxy integration and long-duration refresh/reconnect scenarios.
+Remaining soak work should focus on OIDC reverse-proxy integration, long-duration refresh/reconnect scenarios and production-like execution of the elevated/danger operation flows.
 
 ### Phase 3 — Remove terminal UI dependencies
 
@@ -143,7 +145,7 @@ Recommended next increments:
 - config validation/editor with secrets never returned to the browser;
 - audit trail view and immutable drill evidence links;
 - control-plane scheduler editor with dry-run/preview;
-- browser E2E tests in CI using Playwright.
+- authenticated browser E2E against a disposable OIDC provider and reverse proxy.
 
 ## Acceptance criteria
 
@@ -159,6 +161,7 @@ Recommended next increments:
 - dangerous remote GitLab operations require admin step-up;
 - recognized web mutations are represented in the tamper-evident audit ledger;
 - `audit.required` blocks mutation when the audit ledger is unavailable;
+- a CI browser smoke test starts the compiled binary and checks desktop/mobile rendering plus the live SSE path;
 - existing `/healthz`, `/metrics`, `/api/v1/*`, and `/restore` behavior remains available in console mode;
 - CLI commands and daemon/systemd workflows remain unchanged.
 
