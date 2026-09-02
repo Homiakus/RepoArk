@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -58,6 +59,34 @@ func TestLoopbackListen(t *testing.T) {
 		if loopbackListen(addr) {
 			t.Fatalf("%q should not be accepted as loopback", addr)
 		}
+	}
+}
+
+func TestLocalMutationAllowed(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		host   string
+		origin string
+		want   bool
+	}{
+		{name: "same origin", target: "http://127.0.0.1:9787/api", host: "127.0.0.1:9787", origin: "http://127.0.0.1:9787", want: true},
+		{name: "localhost", target: "http://localhost:9787/api", host: "localhost:9787", origin: "http://localhost:9787", want: true},
+		{name: "curl style no origin", target: "http://127.0.0.1:9787/api", host: "127.0.0.1:9787", want: true},
+		{name: "cross site", target: "http://127.0.0.1:9787/api", host: "127.0.0.1:9787", origin: "https://evil.example", want: false},
+		{name: "dns rebinding host", target: "http://evil.example/api", host: "evil.example", origin: "http://evil.example", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", tc.target, nil)
+			r.Host = tc.host
+			if tc.origin != "" {
+				r.Header.Set("Origin", tc.origin)
+			}
+			if got := localMutationAllowed(r); got != tc.want {
+				t.Fatalf("localMutationAllowed=%t want %t", got, tc.want)
+			}
+		})
 	}
 }
 
