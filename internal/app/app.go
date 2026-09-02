@@ -751,9 +751,11 @@ func auditResult(cfg config.Config, action, target string, opErr error, fields m
 	if opErr != nil {
 		status, detail = "error", opErr.Error()
 	}
-	_, aerr := audit.Append(cfg.Audit.Path, action, target, status, detail, fields)
-	if aerr == nil && cfg.Security.SignManifests {
-		aerr = audit.WriteCheckpoint(cfg.Audit.Path, cfg.Security.SigningKeyPath)
+	var aerr error
+	if cfg.Security.SignManifests {
+		_, aerr = audit.AppendWithCheckpoint(cfg.Audit.Path, cfg.Security.SigningKeyPath, action, target, status, detail, fields)
+	} else {
+		_, aerr = audit.Append(cfg.Audit.Path, action, target, status, detail, fields)
 	}
 	if aerr != nil {
 		fmt.Fprintln(os.Stderr, "audit warning:", aerr)

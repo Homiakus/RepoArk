@@ -335,15 +335,12 @@ func (c *consoleServer) appendConsoleAudit(action, target, status, detail string
 	if !cfg.Audit.Enabled {
 		return nil
 	}
-	if _, err := audit.Append(cfg.Audit.Path, action, target, status, detail, fields); err != nil {
+	if cfg.Security.SignManifests {
+		_, err := audit.AppendWithCheckpoint(cfg.Audit.Path, cfg.Security.SigningKeyPath, action, target, status, detail, fields)
 		return err
 	}
-	if cfg.Security.SignManifests {
-		if err := audit.WriteCheckpoint(cfg.Audit.Path, cfg.Security.SigningKeyPath); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := audit.Append(cfg.Audit.Path, action, target, status, detail, fields)
+	return err
 }
 
 func (c *consoleServer) authCallback(w http.ResponseWriter, r *http.Request) {
