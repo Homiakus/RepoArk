@@ -3,7 +3,7 @@ ba6aac7b14ec34b8f649af127616ceee181c3a3c46f27ecc234258013fee0be4  ./.github/work
 e6d10c43ba7898f31ab2793c57449843cdf139bcb86964d76e29196981c4af3b  ./.github/workflows/distributed-storage.yml
 1e53a7ca579fd8eae1b98fd43399fe14f548ccaa3df4169c63fc2fc9a7313cb3  ./.github/workflows/gitlab-restore-drill.yml
 8888368fe58cffc4aad147bc22af37b0ef376d2ba41ce19161dd8f9fd6fbd650  ./.github/workflows/ha-chaos.yml
-0ee8afab38ce739f9f6ccd2620ffd846fa6dc3acdebf1552c48cccba45eec3c6  ./.github/workflows/web-e2e.yml
+6acab577365322db0fa4eac13bca6e449982363e8dc70c74397069f69a08a711  ./.github/workflows/web-e2e.yml
 557c6b9b9f51ef1f58ef883d36b3996bfffbea500e3b691839f181b09b9c4396  ./.gitignore
 ea38cf708c1c8ba2fc171aa7e63b957b7e10bf59254c8285f6883ed32146c6d6  ./CHANGELOG.md
 df6025fbec810b1e902068d41d33631c6d1f96166ace62f79b2c1b18221076e7  ./LICENSE
@@ -46,7 +46,8 @@ dc28082eda6769fc2980620cda4d309bf6e3f08bcbcb97045ff3222268d6f7ac  ./docs/V0.5.0.
 c927524d15fe442ee04ae3b36dd06a82061b9b2e67abc145353a838f13ecdcdb  ./docs/V0.7.0.md
 e6715238a9a934cc333c8ebece84fd3e2f556d06d6603949bfe9fe63e11f317f  ./docs/V0.8.0.md
 cf82cd5255d06a219241f64bd54f75970eb1f8494f24ba79c15f51d5e4942e9a  ./docs/WEB_RECOVERY.md
-79d483de754e13b022626404f57f10bc1d03ca0cdca5225fa1fdb6c4e5aad548  ./docs/WEB_UI_MIGRATION.md
+0d17148e9dfb7e6be5072dd6c8471afefb9587eb8e64f22b69117a220d82a8d3  ./docs/WEB_UI_MIGRATION.md
+84fb5f61af5018dba66201e6c10dac8a91f656455ec2f50b25de132a1e937650  ./e2e/web-console-auth.mjs
 17862de33181b29e65272e595dda1a7e53061ab70368c24cc77ba014e107e599  ./e2e/web-console-smoke.mjs
 27549e7abb0d5770be3065e55d18ef2539540a66b8604e051747c20170fc729a  ./go.mod
 5f36d60f2331d12140133a1523d54100fd94a0a893bff4ca57b50a50422ccd43  ./go.sum
@@ -94,6 +95,7 @@ e4c590f1caf882aab92abb8a28387f01d194d6318f9cbbdca9d71d46eff57f78  ./internal/con
 294f5d56c39c970c7bebe04e7a32331b6e3cde098abc5f27f52fbbde4c14ebe1  ./internal/controlplane/v08_erasure_test.go
 f49640e7dc5a7363c344c252548d9ef4b6938c4513dd6bae48dded8dc359cd29  ./internal/controlplane/v08_object_lifecycle_test.go
 ce0cc5736648a297f764df609df34ac914104146139e2e93636b94bde55d9797  ./internal/controlplane/worker.go
+8b8798bb5ba8dd73cf54e22d62486db3e7d4091018bddb59850eefba7f27c3fa  ./internal/e2eauth/main.go
 b53e40649199629d1c0377fc1b7a2a6025acd4740575e0ddf621d759340a1661  ./internal/erasure/erasure.go
 68268e5a56daccca5a924bb8f9f10696861d084fe0a23c3ce0bed214001aea49  ./internal/erasure/erasure_test.go
 f7be50795efcbd43e4c0f6df1c8d57b0436bf370f6681bb41852abef8206c81e  ./internal/execx/execx.go

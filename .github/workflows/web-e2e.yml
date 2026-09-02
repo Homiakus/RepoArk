@@ -16,7 +16,7 @@ concurrency:
 jobs:
   chromium:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
@@ -27,8 +27,11 @@ jobs:
         with:
           node-version: 24
 
-      - name: Build RepoArk
-        run: go build -trimpath -o repoark ./cmd/repoark
+      - name: Build RepoArk and auth harness
+        shell: bash
+        run: |
+          go build -trimpath -o repoark ./cmd/repoark
+          go build -trimpath -o repoark-e2e-auth ./internal/e2eauth
 
       - name: Install Playwright Chromium
         shell: bash
@@ -36,7 +39,7 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.62.0
           npx playwright install --with-deps --only-shell chromium
 
-      - name: Run real-browser smoke tests
+      - name: Run local real-browser smoke tests
         shell: bash
         env:
           REPOARK_E2E_URL: http://127.0.0.1:19787
@@ -85,12 +88,124 @@ jobs:
             sleep 0.25
           done
           if [[ "$ready" != 1 ]]; then
-            echo "RepoArk web console did not become ready"
+            echo "RepoArk local web console did not become ready"
             cat artifacts/web-e2e/server.log
             exit 1
           fi
 
           node e2e/web-console-smoke.mjs
+
+      - name: Run authenticated OIDC reverse-proxy browser tests
+        shell: bash
+        env:
+          REPOARK_E2E_URL: https://127.0.0.1:19789
+          REPOARK_E2E_IDP_URL: http://127.0.0.1:19880
+          REPOARK_E2E_ARTIFACTS: artifacts/web-e2e
+          REPOARK_E2E_OIDC_CLIENT_SECRET: repoark-e2e-secret
+          REPOARK_E2E_SESSION_KEY: repoark-e2e-session-key-0123456789abcdef-0123456789abcdef
+        run: |
+          set -euo pipefail
+          auth_root="$RUNNER_TEMP/repoark-auth-e2e"
+          mkdir -p artifacts/web-e2e "$auth_root"
+          harness_pid=""
+          server_pid=""
+          cleanup() {
+            if [[ -n "$server_pid" ]]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+            if [[ -n "$harness_pid" ]]; then
+              kill "$harness_pid" 2>/dev/null || true
+              wait "$harness_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          ./repoark-e2e-auth > artifacts/web-e2e/auth-harness.log 2>&1 &
+          harness_pid=$!
+          idp_ready=0
+          for _ in $(seq 1 80); do
+            if curl --fail --silent http://127.0.0.1:19880/healthz > /dev/null; then
+              idp_ready=1
+              break
+            fi
+            if ! kill -0 "$harness_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 0.1
+          done
+          if [[ "$idp_ready" != 1 ]]; then
+            echo "RepoArk E2E OIDC harness did not become ready"
+            cat artifacts/web-e2e/auth-harness.log
+            exit 1
+          fi
+
+          cat > "$auth_root/config.yml" <<EOF
+          version: 8
+          backup:
+            root: $auth_root/backups
+          security:
+            require_verification: false
+            sign_manifests: false
+          audit:
+            enabled: false
+          cas:
+            enabled: false
+          policy:
+            enabled: false
+            require_signed_manifest: false
+          observability:
+            enabled: true
+            listen: 127.0.0.1:19788
+          control_plane:
+            enabled: true
+            store:
+              driver: sqlite
+              sqlite_path: $auth_root/control.db
+            restore_approval:
+              enabled: true
+              approval_ttl: 30m
+              require_distinct_approver: true
+            web_auth:
+              enabled: true
+              mode: oidc
+              issuer: http://127.0.0.1:19880
+              client_id: repoark-e2e
+              client_secret_env: REPOARK_E2E_OIDC_CLIENT_SECRET
+              redirect_url: https://127.0.0.1:19789/auth/callback
+              session_key_env: REPOARK_E2E_SESSION_KEY
+              group_claim: groups
+              scopes: [profile, email, groups]
+              step_up_acr_values: [urn:repoark:e2e:webauthn]
+              viewer_groups: [repoark-viewers]
+              operator_groups: [repoark-operators]
+              admin_groups: [repoark-admins]
+              required_amr: [webauthn]
+              secure_cookies: true
+          EOF
+
+          ./repoark --config "$auth_root/config.yml" web > artifacts/web-e2e/server-auth.log 2>&1 &
+          server_pid=$!
+          ready=0
+          for _ in $(seq 1 80); do
+            code="$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' https://127.0.0.1:19789/api/v1/console/session || true)"
+            if [[ "$code" == "401" ]]; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          if [[ "$ready" != 1 ]]; then
+            echo "RepoArk authenticated web console did not become ready"
+            cat artifacts/web-e2e/server-auth.log
+            cat artifacts/web-e2e/auth-harness.log
+            exit 1
+          fi
+
+          node e2e/web-console-auth.mjs
 
       - name: Upload browser diagnostics
         if: ${{ failure() }}

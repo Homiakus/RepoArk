@@ -81,6 +81,8 @@ When OIDC web auth is enabled, the existing RepoArk encrypted session, role mapp
 
 The existing recovery wizard remains under `/restore` and retains its stronger restore approval and step-up rules.
 
+The browser CI includes a disposable standards-shaped OIDC provider and HTTPS reverse proxy. It verifies the real Authorization Code + PKCE redirect flow, RS256 ID-token verification through JWKS discovery, viewer/operator/admin role mapping, secure encrypted session cookies, CSRF enforcement, and a fresh admin step-up that must carry the configured WebAuthn AMR/ACR before a privileged recovery approval endpoint is allowed past the security boundary.
+
 ### Auditability
 
 Every recognized browser operation is correlated with an actor and request ID in the tamper-evident audit ledger. The ledger records request, rejection, completion/error/cancellation, and explicit cancel actions. When signed audit checkpoints are configured, the checkpoint is advanced with the web audit record. With `audit.required: true`, mutations fail closed before execution if the audit ledger cannot be written.
@@ -120,9 +122,10 @@ Hardening already completed in this phase:
 - SSE live job/log delivery with reconnect-safe full snapshots and polling fallback;
 - race coverage for the job/audit/event paths;
 - a real-browser Chromium CI gate that launches the compiled `repoark web` binary and verifies startup, routing, security headers, local session rendering, operation cards, SSE transport, polling suppression and a narrow mobile viewport;
-- failure diagnostics preserve the RepoArk server log and a full-page browser screenshot without adding Node.js to the runtime distribution.
+- an authenticated Chromium path behind a disposable HTTPS reverse proxy and OIDC provider, covering PKCE, signed ID tokens, viewer/operator/admin RBAC, CSRF, Secure/SameSite session cookies and WebAuthn-style step-up AMR/ACR;
+- failure diagnostics preserve RepoArk/auth-harness server logs and browser screenshots without adding Node.js to the runtime distribution.
 
-Remaining soak work should focus on OIDC reverse-proxy integration, long-duration refresh/reconnect scenarios and production-like execution of the elevated/danger operation flows.
+Remaining soak work should focus on long-duration refresh/reconnect scenarios and production-like execution of elevated/danger operation flows with disposable backends.
 
 ### Phase 3 — Remove terminal UI dependencies
 
@@ -144,8 +147,7 @@ Recommended next increments:
 - repository-level backup/verify filters;
 - config validation/editor with secrets never returned to the browser;
 - audit trail view and immutable drill evidence links;
-- control-plane scheduler editor with dry-run/preview;
-- authenticated browser E2E against a disposable OIDC provider and reverse proxy.
+- control-plane scheduler editor with dry-run/preview.
 
 ## Acceptance criteria
 
@@ -159,6 +161,8 @@ Recommended next increments:
 - no-auth web console refuses non-loopback listen addresses;
 - authenticated mutations enforce RepoArk roles and CSRF;
 - dangerous remote GitLab operations require admin step-up;
+- OIDC browser CI proves Authorization Code + PKCE, signed ID-token verification, Secure/SameSite session cookies and viewer/operator/admin role mapping through an HTTPS reverse proxy;
+- an admin session without the configured step-up AMR is rejected, while a fresh step-up session carrying the required WebAuthn AMR passes the authorization boundary;
 - recognized web mutations are represented in the tamper-evident audit ledger;
 - `audit.required` blocks mutation when the audit ledger is unavailable;
 - a CI browser smoke test starts the compiled binary and checks desktop/mobile rendering plus the live SSE path;
