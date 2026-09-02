@@ -236,7 +236,7 @@ repoark cas erasure-reconstruct SHA256 OUTPUT
 repoark storage disk-health           Show SMART/NVMe + filesystem health
 repoark storage scrub                 Run bounded CAS scrub/optional repair
 repoark storage tier                  Copy eligible CAS objects to cold tier
-repoark serve                         Observability dashboard + health/metrics/API
+repoark serve                         Compatibility alias for the browser console
 repoark daemon                        Legacy scheduled control loop
 repoark control serve                 Durable scheduler + local workers + optional mTLS agent API
 repoark control sync                  Discover repositories into SQL state
@@ -747,7 +747,7 @@ The console preserves the operational/read endpoints on the same service boundar
 
 The UI has no external JavaScript/CSS/CDN dependency. A real Chromium CI gate launches the compiled binary and verifies desktop/mobile rendering, SSE reconnect/cancellation, local security boundaries and the authenticated OIDC/PKCE/RBAC/CSRF/step-up path through a disposable HTTPS reverse proxy.
 
-`repoark serve` remains available when only the traditional observability entrypoint is desired.
+`repoark serve` is retained as a compatibility alias for the same browser console.
 
 ## Backup tree (abridged)
 
