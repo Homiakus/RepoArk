@@ -8,11 +8,18 @@ await mkdir(artifactsDir, { recursive: true });
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-const browserErrors = [];
+const pageErrors = [];
+const consoleErrors = [];
 
-page.on('pageerror', error => browserErrors.push(`pageerror: ${error.message}`));
+page.on('pageerror', error => pageErrors.push(error.message));
 page.on('console', message => {
-  if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
+  if (message.type() !== 'error') return;
+  const text = message.text();
+  // An empty backup root intentionally makes overview endpoints report
+  // degraded/unavailable state. Chromium logs those HTTP responses as console
+  // errors even though the dashboard handles them without a JavaScript error.
+  if (/^Failed to load resource: the server responded with a status of (404|503)/.test(text)) return;
+  consoleErrors.push(text);
 });
 
 try {
@@ -69,7 +76,8 @@ try {
   assert.equal(horizontallyOverflowing, false, 'mobile viewport has horizontal page overflow');
   assert(await page.locator('#jobTitle').isVisible(), 'activity panel should remain visible on mobile');
 
-  assert.deepEqual(browserErrors, [], `browser emitted errors:\n${browserErrors.join('\n')}`);
+  assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
+  assert.deepEqual(consoleErrors, [], `browser JavaScript console errors:\n${consoleErrors.join('\n')}`);
   console.log(`RepoArk web E2E passed: actions=${actionCount}, repeatedJobPolls=${jobPollCount}`);
 } catch (error) {
   await page.screenshot({ path: `${artifactsDir}/failure.png`, fullPage: true }).catch(() => {});
