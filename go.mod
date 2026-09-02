@@ -3,8 +3,6 @@ module github.com/Homiakus/repoark
 go 1.25.0
 
 require (
-	charm.land/bubbletea/v2 v2.0.8
-	charm.land/lipgloss/v2 v2.0.5
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/klauspost/reedsolomon v1.14.1
