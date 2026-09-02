@@ -39,10 +39,12 @@ type consoleJobManager struct {
 	parent  context.Context
 	current *consoleJob
 	cancel  context.CancelFunc
+	seq     uint64
+	changed chan struct{}
 }
 
 func newConsoleJobManager(parent context.Context) *consoleJobManager {
-	return &consoleJobManager{parent: parent}
+	return &consoleJobManager{parent: parent, changed: make(chan struct{})}
 }
 
 func (m *consoleJobManager) Start(name string, run func(context.Context, func(string)) error) (consoleJob, error) {
@@ -97,11 +99,20 @@ func (m *consoleJobManager) Start(name string, run func(context.Context, func(st
 func (m *consoleJobManager) Snapshot() *consoleJob {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.current == nil {
-		return nil
+	return m.snapshotLocked()
+}
+
+// Observe returns an immutable job snapshot when the manager revision differs
+// from after. When the revision is unchanged, changed is a broadcast channel
+// that closes on the next mutation. This lets any number of SSE clients wait
+// without per-client queues or log-event backpressure.
+func (m *consoleJobManager) Observe(after uint64) (job *consoleJob, seq uint64, changed <-chan struct{}) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if after != m.seq {
+		return m.snapshotLocked(), m.seq, nil
 	}
-	job := cloneConsoleJob(m.current)
-	return &job
+	return nil, m.seq, m.changed
 }
 
 func (m *consoleJobManager) Cancel() error {
@@ -132,6 +143,21 @@ func (m *consoleJobManager) appendLocked(job *consoleJob, line string) {
 	if len(job.Logs) > 400 {
 		job.Logs = append([]consoleLog(nil), job.Logs[len(job.Logs)-400:]...)
 	}
+	m.signalLocked()
+}
+
+func (m *consoleJobManager) signalLocked() {
+	m.seq++
+	close(m.changed)
+	m.changed = make(chan struct{})
+}
+
+func (m *consoleJobManager) snapshotLocked() *consoleJob {
+	if m.current == nil {
+		return nil
+	}
+	job := cloneConsoleJob(m.current)
+	return &job
 }
 
 func cloneConsoleJob(src *consoleJob) consoleJob {
