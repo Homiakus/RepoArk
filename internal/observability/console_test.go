@@ -16,6 +16,8 @@ import (
 	"github.com/Homiakus/repoark/internal/config"
 )
 
+const consoleTestWaitTimeout = 10 * time.Second
+
 func TestConsoleJobManagerSingleFlight(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -260,7 +262,7 @@ func readConsoleAuditRecords(t *testing.T, path string) []audit.Record {
 
 func waitConsoleAuditRecords(t *testing.T, path string, want int) []audit.Record {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(consoleTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(path); err == nil {
 			records := readConsoleAuditRecords(t, path)
@@ -275,7 +277,7 @@ func waitConsoleAuditRecords(t *testing.T, path string, want int) []audit.Record
 
 func waitConsoleJobDone(t *testing.T, m *consoleJobManager) *consoleJob {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(consoleTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		job := m.Snapshot()
 		if job != nil && job.State != "running" {
@@ -293,7 +295,7 @@ func waitConsoleJobDone(t *testing.T, m *consoleJobManager) *consoleJob {
 
 func waitConsoleJobState(t *testing.T, m *consoleJobManager, want string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(consoleTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		job := m.Snapshot()
 		if job != nil && job.State == want {

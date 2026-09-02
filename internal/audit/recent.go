@@ -1,10 +1,7 @@
 package audit
 
 import (
-	"bufio"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 )
@@ -12,9 +9,8 @@ import (
 const maxRecentRecords = 4096
 
 // Recent returns at most limit verified records matching action, newest first.
-// An empty action matches every record. Verification and the subsequent read
-// share the audit mutex so no concurrent Append can move the ledger between
-// those two steps.
+// An empty action matches every record. Matching records are collected during
+// the same verified scan, so there is no verify/read TOCTOU window.
 func Recent(path string, limit int, action string) ([]Record, error) {
 	if limit <= 0 {
 		return []Record{}, nil
@@ -23,44 +19,27 @@ func Recent(path string, limit int, action string) ([]Record, error) {
 		limit = maxRecentRecords
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if _, err := verifyLocked(path); err != nil {
-		return nil, err
-	}
-
-	f, err := os.Open(path)
+	release, err := acquireLedgerGuard(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer release()
 
 	action = strings.TrimSpace(action)
 	ring := make([]Record, limit)
 	count := 0
 	next := 0
-	s := bufio.NewScanner(f)
-	buf := make([]byte, 64*1024)
-	s.Buffer(buf, 8<<20)
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-		if line == "" {
-			continue
-		}
-		var r Record
-		if err := json.Unmarshal([]byte(line), &r); err != nil {
-			return nil, fmt.Errorf("audit recent record: %w", err)
-		}
+	_, _, err = scanVerifiedLocked(path, func(r Record) {
 		if action != "" && r.Action != action {
-			continue
+			return
 		}
 		ring[next] = r
 		next = (next + 1) % limit
 		if count < limit {
 			count++
 		}
-	}
-	if err := s.Err(); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	if count == 0 {

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -41,18 +40,46 @@ type unsignedRecord struct {
 	PrevHash string         `json:"prev_hash,omitempty"`
 }
 
-var mu sync.Mutex
-
+// Append verifies the complete existing ledger before deriving the next
+// sequence/hash and writing a new record. It therefore refuses to extend a
+// ledger whose tamper-evident chain is already invalid.
 func Append(path, action, target, status, detail string, fields map[string]any) (Record, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	if strings.TrimSpace(path) == "" {
-		return Record{}, errors.New("audit path is empty")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := prepareLedgerDir(path); err != nil {
 		return Record{}, err
 	}
-	last, err := readLast(path)
+	release, err := acquireLedgerGuard(path)
+	if err != nil {
+		return Record{}, err
+	}
+	defer release()
+	return appendLocked(path, action, target, status, detail, fields)
+}
+
+// AppendWithCheckpoint atomically, with respect to other RepoArk processes
+// using the same ledger, appends a verified record and advances the signed
+// checkpoint to exactly that new head before releasing the ledger guard.
+func AppendWithCheckpoint(path, keyPath, action, target, status, detail string, fields map[string]any) (Record, error) {
+	if err := prepareLedgerDir(path); err != nil {
+		return Record{}, err
+	}
+	release, err := acquireLedgerGuard(path)
+	if err != nil {
+		return Record{}, err
+	}
+	defer release()
+
+	r, err := appendLocked(path, action, target, status, detail, fields)
+	if err != nil {
+		return Record{}, err
+	}
+	if err := writeCheckpointForHeadLocked(path, keyPath, r); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+func appendLocked(path, action, target, status, detail string, fields map[string]any) (Record, error) {
+	_, last, err := scanVerifiedLocked(path, nil)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Record{}, err
 	}
@@ -93,26 +120,39 @@ func Append(path, action, target, status, detail string, fields map[string]any) 
 	return r, f.Close()
 }
 
-func Verify(path string) (int, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	return verifyLocked(path)
+func prepareLedgerDir(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("audit path is empty")
+	}
+	return os.MkdirAll(filepath.Dir(path), 0o700)
 }
 
-// verifyLocked validates the complete ledger while the package audit mutex is
-// held. Callers that need to verify and then consume the same ledger snapshot
-// can keep the mutex across both operations and avoid a verify/read race with
-// concurrent Append calls.
-func verifyLocked(path string) (int, error) {
-	f, err := os.Open(path)
+func Verify(path string) (int, error) {
+	release, err := acquireLedgerGuard(path)
 	if err != nil {
 		return 0, err
 	}
+	defer release()
+	count, _, err := scanVerifiedLocked(path, nil)
+	return count, err
+}
+
+// scanVerifiedLocked validates the complete ledger and returns both its record
+// count and verified head. visit is called only after each record's sequence,
+// previous hash and own hash have been validated. The caller must hold the
+// ledger guard for the entire scan.
+func scanVerifiedLocked(path string, visit func(Record)) (int, Record, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, Record{}, err
+	}
 	defer f.Close()
+
 	s := bufio.NewScanner(f)
 	buf := make([]byte, 64*1024)
 	s.Buffer(buf, 8<<20)
 	var prev string
+	var head Record
 	var wantSeq uint64 = 1
 	count := 0
 	for s.Scan() {
@@ -122,53 +162,33 @@ func verifyLocked(path string) (int, error) {
 		}
 		var r Record
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
-			return count, fmt.Errorf("audit line %d: %w", count+1, err)
+			return count, head, fmt.Errorf("audit line %d: %w", count+1, err)
 		}
 		if r.Seq != wantSeq {
-			return count, fmt.Errorf("audit sequence mismatch at record %d: got %d", wantSeq, r.Seq)
+			return count, head, fmt.Errorf("audit sequence mismatch at record %d: got %d", wantSeq, r.Seq)
 		}
 		if r.PrevHash != prev {
-			return count, fmt.Errorf("audit prev_hash mismatch at record %d", r.Seq)
+			return count, head, fmt.Errorf("audit prev_hash mismatch at record %d", r.Seq)
 		}
 		h, err := hashRecord(r)
 		if err != nil {
-			return count, err
+			return count, head, err
 		}
 		if !strings.EqualFold(h, r.Hash) {
-			return count, fmt.Errorf("audit hash mismatch at record %d", r.Seq)
+			return count, head, fmt.Errorf("audit hash mismatch at record %d", r.Seq)
 		}
+		head = r
 		prev = r.Hash
 		wantSeq++
 		count++
+		if visit != nil {
+			visit(r)
+		}
 	}
 	if err := s.Err(); err != nil {
-		return count, err
+		return count, head, err
 	}
-	return count, nil
-}
-
-func readLast(path string) (Record, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return Record{}, err
-	}
-	defer f.Close()
-	s := bufio.NewScanner(f)
-	buf := make([]byte, 64*1024)
-	s.Buffer(buf, 8<<20)
-	var last Record
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-		if line == "" {
-			continue
-		}
-		var r Record
-		if err := json.Unmarshal([]byte(line), &r); err != nil {
-			return Record{}, err
-		}
-		last = r
-	}
-	return last, s.Err()
+	return count, head, nil
 }
 
 func hashRecord(r Record) (string, error) {
@@ -183,10 +203,11 @@ func hashRecord(r Record) (string, error) {
 
 // Head returns the last verified ledger record.
 func Head(path string) (Record, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	if _, err := verifyLocked(path); err != nil {
+	release, err := acquireLedgerGuard(path)
+	if err != nil {
 		return Record{}, err
 	}
-	return readLast(path)
+	defer release()
+	_, head, err := scanVerifiedLocked(path, nil)
+	return head, err
 }
