@@ -38,7 +38,7 @@ func main() {
 		if err := app.Run(ctx, args); err != nil {
 			fatal(err)
 		}
-		fmt.Println("\nInteractive UI:\n  repoark web                    Start the browser console (also the default)\n  repoark tui                    Deprecated alias for the browser console")
+		fmt.Println("\nInteractive UI:\n  repoark web                    Start the browser console (also the default)\n  repoark tui                    Deprecated alias for the browser console\n  repoark serve                  Compatibility alias for the browser console")
 		return
 	}
 
@@ -65,7 +65,7 @@ func isWebCommand(args []string) bool {
 	if len(args) == 0 {
 		return true
 	}
-	return args[0] == "web" || args[0] == "tui"
+	return args[0] == "web" || args[0] == "tui" || args[0] == "serve"
 }
 
 func isHelpCommand(args []string) bool {
