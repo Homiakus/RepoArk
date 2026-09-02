@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/Homiakus/repoark/internal/audit"
 	"github.com/Homiakus/repoark/internal/backup"
 	"github.com/Homiakus/repoark/internal/cas"
@@ -36,7 +34,6 @@ import (
 	"github.com/Homiakus/repoark/internal/signing"
 	"github.com/Homiakus/repoark/internal/storagehealth"
 	"github.com/Homiakus/repoark/internal/tiering"
-	"github.com/Homiakus/repoark/internal/tui"
 )
 
 const Version = "0.8.0"
@@ -46,13 +43,8 @@ func Run(ctx context.Context, args []string) error {
 		return askPass(args)
 	}
 	cfgPath, args := extractConfig(args)
-	if len(args) == 0 || args[0] == "tui" {
-		cfg, err := config.Load(cfgPath)
-		if err != nil {
-			return err
-		}
-		_, err = tea.NewProgram(tui.New(cfg)).Run()
-		return err
+	if len(args) == 0 {
+		return errors.New("no CLI command; start the interactive web console through the repoark entrypoint")
 	}
 
 	cmd := args[0]
@@ -797,7 +789,7 @@ func printHelp() {
 	fmt.Print(`RepoArk — GitHub backup + GitLab disaster recovery center
 
 Usage:
-  repoark                         Open Charm TUI
+  repoark                         Start the browser console (default)
   repoark init [--force]          Create configuration
   repoark doctor                  Check Git/GitHub/Docker prerequisites
   repoark backup                  Backup all accessible GitHub repositories
@@ -806,7 +798,7 @@ Usage:
   repoark drill [N]               Perform real restore drills for N repositories
   repoark keys generate           Create/ensure Ed25519 manifest signing key
   repoark keys verify             Verify latest detached manifest signature
-  repoark serve                   Serve dashboard + /healthz /metrics /api/v1/*
+  repoark serve                   Compatibility alias for the browser console
   repoark daemon                  Run scheduled backups/drills/offsite replication
   repoark fleet backup            Back up all configured GitHub accounts
   repoark fleet verify            Verify every configured account backup
