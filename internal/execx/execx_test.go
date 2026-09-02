@@ -31,7 +31,7 @@ func TestRunReturnsContextCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := Run(ctx, "", nil, "sh", "-c", "sleep 30")
+	_, err := Run(ctx, "", nil, "sleep", "30")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context deadline, got %v", err)
 	}
