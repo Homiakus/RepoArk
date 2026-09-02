@@ -95,9 +95,11 @@ func (c *consoleServer) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/console/state", c.state)
 	mux.HandleFunc("GET /api/v1/console/session", c.session)
 	mux.HandleFunc("GET /api/v1/console/job", c.job)
+	mux.HandleFunc("GET /api/v1/console/history", c.history)
 	mux.HandleFunc("GET /api/v1/console/events", c.events)
 	mux.HandleFunc("POST /api/v1/console/jobs/{name}", c.startJob)
 	mux.HandleFunc("POST /api/v1/console/job/cancel", c.cancelJob)
+	mux.HandleFunc("GET /history", c.historyPage)
 
 	if s.auth != nil {
 		mux.HandleFunc("GET /auth/login", s.authLogin)

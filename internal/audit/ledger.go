@@ -94,6 +94,16 @@ func Append(path, action, target, status, detail string, fields map[string]any) 
 }
 
 func Verify(path string) (int, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	return verifyLocked(path)
+}
+
+// verifyLocked validates the complete ledger while the package audit mutex is
+// held. Callers that need to verify and then consume the same ledger snapshot
+// can keep the mutex across both operations and avoid a verify/read race with
+// concurrent Append calls.
+func verifyLocked(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
@@ -173,7 +183,9 @@ func hashRecord(r Record) (string, error) {
 
 // Head returns the last verified ledger record.
 func Head(path string) (Record, error) {
-	if _, err := Verify(path); err != nil {
+	mu.Lock()
+	defer mu.Unlock()
+	if _, err := verifyLocked(path); err != nil {
 		return Record{}, err
 	}
 	return readLast(path)

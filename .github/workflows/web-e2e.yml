@@ -76,7 +76,9 @@ jobs:
             require_verification: false
             sign_manifests: false
           audit:
-            enabled: false
+            enabled: true
+            required: false
+            path: $e2e_root/audit/ledger.jsonl
           cas:
             enabled: false
           policy:
@@ -175,7 +177,9 @@ jobs:
             require_verification: false
             sign_manifests: false
           audit:
-            enabled: false
+            enabled: true
+            required: false
+            path: $auth_root/audit/ledger.jsonl
           cas:
             enabled: false
           policy:

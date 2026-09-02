@@ -59,6 +59,7 @@ try {
   await page.locator('#actions .action').first().waitFor({ timeout: 10_000 });
   const actionCount = await page.locator('#actions .action').count();
   assert(actionCount >= 2, `expected operation cards, got ${actionCount}`);
+  assert(await page.locator('a[href="/history"]').isVisible(), 'history must be discoverable from the main console');
 
   const sseResponse = await sseResponsePromise;
   assert.equal(sseResponse.status(), 200, 'SSE endpoint should return HTTP 200');
@@ -127,18 +128,45 @@ try {
   assert.equal(terminal.id, running.id, 'cancel completed a different job');
   assert.match(terminal.error || '', /context canceled/i, 'cancelled subprocess should preserve context cancellation');
 
+  const historyResponse = await fetch(`${baseURL}/api/v1/console/history?limit=10`);
+  assert.equal(historyResponse.status, 200, 'history endpoint should return HTTP 200');
+  const history = await historyResponse.json();
+  assert.equal(history.enabled, true, 'history should be enabled in E2E');
+  assert.equal(history.persistent, true, 'history should be audit-backed and persistent');
+  assert.equal(history.verified, true, 'history should be emitted only from a verified audit chain');
+  const historyEntry = (history.entries || []).find(entry => entry.request_id === started.body.request_id);
+  assert(historyEntry, `cancelled operation missing from history: ${JSON.stringify(history)}`);
+  assert.equal(historyEntry.operation, 'offsite');
+  assert.equal(historyEntry.state, 'cancelled');
+  assert.equal(historyEntry.actor, 'local-browser');
+  assert.equal(historyEntry.risk, 'elevated');
+  assert(historyEntry.ended_at, 'terminal history entry must include ended_at');
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#actions .action').first().waitFor({ timeout: 10_000 });
   const horizontallyOverflowing = await page.evaluate(() =>
     document.documentElement.scrollWidth > window.innerWidth + 1,
   );
-  assert.equal(horizontallyOverflowing, false, 'mobile viewport has horizontal page overflow');
+  assert.equal(horizontallyOverflowing, false, 'mobile dashboard viewport has horizontal page overflow');
   assert(await page.locator('#jobTitle').isVisible(), 'activity panel should remain visible on mobile');
+
+  const historyPageResponse = await page.goto(`${baseURL}/history`, { waitUntil: 'domcontentloaded' });
+  assert(historyPageResponse, 'history page did not return a response');
+  assert.equal(historyPageResponse.status(), 200, 'history page should return HTTP 200');
+  assert.equal(await page.title(), 'RepoArk Operation History');
+  await page.locator('#meta').filter({ hasText: 'Verified hash-chain' }).waitFor({ timeout: 10_000 });
+  const historyRow = page.locator('tbody tr').filter({ hasText: 'offsite' }).first();
+  await historyRow.waitFor({ timeout: 10_000 });
+  assert.match(await historyRow.textContent(), /cancelled/, 'history page should render terminal operation state');
+  const historyOverflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth > window.innerWidth + 1,
+  );
+  assert.equal(historyOverflow, false, 'mobile history viewport has horizontal page overflow');
 
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   assert.deepEqual(consoleErrors, [], `browser JavaScript console errors:\n${consoleErrors.join('\n')}`);
-  console.log(`RepoArk web E2E passed: actions=${actionCount}, repeatedJobPolls=${jobPollCount}, refreshJob=${running.id}, cancel=${terminal.state}`);
+  console.log(`RepoArk web E2E passed: actions=${actionCount}, repeatedJobPolls=${jobPollCount}, refreshJob=${running.id}, cancel=${terminal.state}, history=${historyEntry.state}`);
 } catch (error) {
   await page.screenshot({ path: `${artifactsDir}/failure.png`, fullPage: true }).catch(() => {});
   throw error;

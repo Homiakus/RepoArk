@@ -18,7 +18,7 @@ const consoleHTML = `<!doctype html>
 <div class="shell">
   <div class="top">
     <div class="brand"><div class="mark"></div><div><div class="title">RepoArk Console</div><div class="subtitle">Backup operations · disaster recovery · integrity</div></div></div>
-    <div><div class="nav"><a href="/healthz" target="_blank">Health</a><a href="/metrics" target="_blank">Metrics</a><a id="recoveryLink" href="/restore" style="display:none">Recovery</a><button class="ghost" onclick="refreshAll()">Refresh</button></div><div id="session" class="session"></div></div>
+    <div><div class="nav"><a href="/healthz" target="_blank">Health</a><a href="/metrics" target="_blank">Metrics</a><a href="/history">History</a><a id="recoveryLink" href="/restore" style="display:none">Recovery</a><button class="ghost" onclick="refreshAll()">Refresh</button></div><div id="session" class="session"></div></div>
   </div>
   <div id="banner" class="banner"></div>
   <div class="layout">
