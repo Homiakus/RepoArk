@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           npm install --no-save --no-package-lock playwright@1.62.0
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps --only-shell chromium
 
       - name: Run real-browser smoke tests
         shell: bash
