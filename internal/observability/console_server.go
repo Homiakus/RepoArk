@@ -113,12 +113,21 @@ func (c *consoleServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if c.base.auth != nil {
+		if _, err := c.base.auth.Authorize(r, webauth.RoleViewer, false); err != nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = fmt.Fprint(w, consoleHTML)
 }
 
-func (c *consoleServer) state(w http.ResponseWriter, _ *http.Request) {
+func (c *consoleServer) state(w http.ResponseWriter, r *http.Request) {
+	if !c.authorizeRead(w, r) {
+		return
+	}
 	cfg := c.base.cfg
 	writeConsoleJSON(w, http.StatusOK, map[string]any{
 		"actions": consoleActions(cfg),
@@ -164,7 +173,10 @@ func (c *consoleServer) session(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (c *consoleServer) job(w http.ResponseWriter, _ *http.Request) {
+func (c *consoleServer) job(w http.ResponseWriter, r *http.Request) {
+	if !c.authorizeRead(w, r) {
+		return
+	}
 	writeConsoleJSON(w, http.StatusOK, map[string]any{"job": c.jobs.Snapshot()})
 }
 
@@ -210,6 +222,17 @@ func (c *consoleServer) cancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeConsoleJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+}
+
+func (c *consoleServer) authorizeRead(w http.ResponseWriter, r *http.Request) bool {
+	if c.base.auth == nil {
+		return true
+	}
+	if _, err := c.base.auth.Authorize(r, webauth.RoleViewer, false); err != nil {
+		writeConsoleJSON(w, http.StatusUnauthorized, map[string]any{"error": "authentication required", "login": "/auth/login"})
+		return false
+	}
+	return true
 }
 
 func (c *consoleServer) authorizeMutation(w http.ResponseWriter, r *http.Request, stepUp bool) bool {
