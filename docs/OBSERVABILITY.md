@@ -11,6 +11,8 @@ Read-oriented endpoints include:
 - `GET /api/v1/fleet` — per-account fleet state.
 - `GET /api/v1/policy` — RPO/RTO policy evaluation.
 - `GET /api/v1/control/*` — control-plane status, inventories and recovery state where enabled.
+- `GET /api/v1/console/history` — bounded verified browser-operation history derived from the audit ledger.
+- `GET /history` — responsive operation-history timeline.
 - `GET /` — self-contained responsive RepoArk browser console.
 
 Interactive browser operations live under `/api/v1/console/*`. Job/log updates use Server-Sent Events, with reconnect-safe complete snapshots and low-frequency polling fallback. Only one interactive mutation runs at a time and cancellation propagates through the operation context into external subprocess trees.
@@ -38,6 +40,14 @@ For remote browser access, enable OIDC web authentication and terminate HTTPS at
 The point-in-time recovery wizard is mounted at `/restore` with `/auth/*` when web authentication is enabled. Browser recovery remains constrained to the configured managed restore root.
 
 Every recognized browser mutation is correlated with actor/request IDs in the tamper-evident audit ledger. With `audit.required: true`, mutation fails closed when the required audit record cannot be persisted.
+
+## Verified operation history
+
+`/history` and `GET /api/v1/console/history` are read-only projections of the existing audit ledger, not a second operation database. RepoArk verifies the complete audit hash chain before returning history, groups `requested` and terminal `web-operation` records by `request_id`, and exposes bounded newest-first entries with operation, actor, risk, start/end timestamps, terminal state and detail.
+
+Live log tails are intentionally not copied into persistent history. The SSE/current-job surface remains the source for live output; the audit ledger remains the durable source for who requested an operation and how it ended. A request with no terminal audit event is shown as `incomplete`, which covers abrupt process termination without pretending the operation is still running after restart.
+
+When `audit.enabled: false`, the API explicitly reports that persistent history is disabled. When the ledger exists but cannot pass sequence/hash verification or cannot be read, the history API returns 503 and no partially trusted entries. OIDC viewers may read history; mutation permissions are unchanged.
 
 ## Notifications
 
