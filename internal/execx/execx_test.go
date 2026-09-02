@@ -25,14 +25,18 @@ func TestRun(t *testing.T) {
 	}
 }
 
-func TestRunReturnsContextCancellation(t *testing.T) {
+func TestRunReturnsContextCancellationWithDescendant(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("uses a POSIX sleep command")
+		t.Skip("POSIX descendant-process regression is covered by Linux CI")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := Run(ctx, "", nil, "sleep", "30")
+	started := time.Now()
+	_, err := Run(ctx, "", nil, "sh", "-c", "sleep 30")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context deadline, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("process-tree cancellation took too long: %s", elapsed)
 	}
 }
