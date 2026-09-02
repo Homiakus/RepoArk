@@ -107,7 +107,12 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   const reconnect = await reconnectPromise;
   assert.equal(reconnect.status(), 200, 'SSE reconnect after refresh failed');
-  await page.locator('#jobTitle').filter({ hasText: 'Offsite sync' }).waitFor({ timeout: 10_000 });
+  await page.waitForFunction(
+    expectedID => typeof currentJob !== 'undefined' && currentJob?.id === expectedID && currentJob?.state === 'running',
+    running.id,
+    { timeout: 10_000 },
+  );
+  assert.equal(await page.locator('#jobTitle').textContent(), 'offsite', 'reconnected UI should render the active operation');
   const afterReload = await readJob();
   assert(afterReload, 'active job disappeared after browser refresh');
   assert.equal(afterReload.id, running.id, 'browser refresh changed active job identity');
