@@ -42,7 +42,7 @@ func TestConsoleHistoryFromAuditGroupsOperationsNewestFirst(t *testing.T) {
 	}
 }
 
-func TestConsoleHistoryPreservesStartedWithoutTerminalRecord(t *testing.T) {
+func TestConsoleHistoryMarksMissingTerminalRecordIncomplete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.jsonl")
 	appendHistoryAudit(t, path, "req-live", "backup", "local-browser", "normal", "requested", "")
 
@@ -53,8 +53,8 @@ func TestConsoleHistoryPreservesStartedWithoutTerminalRecord(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("entries=%d want 1", len(entries))
 	}
-	if entries[0].State != "started" || entries[0].EndedAt != nil {
-		t.Fatalf("unexpected started entry: %+v", entries[0])
+	if entries[0].State != "incomplete" || entries[0].EndedAt != nil {
+		t.Fatalf("unexpected incomplete entry: %+v", entries[0])
 	}
 }
 
