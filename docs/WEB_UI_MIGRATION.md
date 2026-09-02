@@ -21,16 +21,18 @@ Browser
   ├── GET /api/v1/control/*         existing control-plane API
   ├── GET /healthz /metrics         existing operations endpoints
   │
-  └── /api/v1/console/*             new interactive-operations API
+  └── /api/v1/console/*             interactive-operations API
        ├── state                    capabilities/tools/actions
        ├── session                  local/OIDC session state + CSRF
        ├── job                      active/last operation + log tail
+       ├── events                   SSE job/log snapshots + reconnect
        ├── jobs/{name}              start operation
        └── job/cancel               cooperative cancellation
                 │
                 ▼
         consoleJobManager
         single active operation
+        revision broadcast
                 │
                 ▼
  backup / fleet / gitlab / offsite / CAS / policy packages
@@ -58,11 +60,15 @@ The console exposes the former TUI actions as explicit cards:
 
 Only one operation can run at a time. This deliberately preserves the TUI execution invariant and avoids concurrent mutation of the same backup/GitLab state. Each job keeps a bounded in-memory log tail and supports cooperative cancellation through `context.Context`.
 
+Live activity uses Server-Sent Events. The server sends complete immutable job snapshots keyed by a monotonically increasing revision. A reconnect can therefore resume with `Last-Event-ID`, and a slow browser never applies pressure to the backup pipeline. The browser falls back to low-frequency job polling if EventSource is unavailable or temporarily disconnected.
+
 ## Security model
 
 ### Local mode
 
 Without `control_plane.web_auth`, `RunConsole` accepts only an explicit loopback listen address (`127.0.0.1`, `::1`, or `localhost`). A configuration such as `0.0.0.0:9787` is rejected rather than silently exposing privileged buttons.
+
+Local browser mutations additionally require a loopback Host and same-origin `Origin`/`Referer` when those headers are present. This closes browser CSRF and DNS-rebinding paths while preserving direct local CLI/HTTP diagnostics that do not send an Origin header.
 
 ### Authenticated remote mode
 
@@ -75,9 +81,13 @@ When OIDC web auth is enabled, the existing RepoArk encrypted session, role mapp
 
 The existing recovery wizard remains under `/restore` and retains its stronger restore approval and step-up rules.
 
+### Auditability
+
+Every recognized browser operation is correlated with an actor and request ID in the tamper-evident audit ledger. The ledger records request, rejection, completion/error/cancellation, and explicit cancel actions. When signed audit checkpoints are configured, the checkpoint is advanced with the web audit record. With `audit.required: true`, mutations fail closed before execution if the audit ledger cannot be written.
+
 ### HTTP hardening
 
-The console adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and a restrictive Content Security Policy. The UI has no CDN/runtime frontend dependencies.
+The console adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and a restrictive Content Security Policy. The UI has no CDN/runtime frontend dependencies. SSE responses explicitly disable intermediary buffering and clear only the per-response write deadline required for a long-lived stream; the normal API server timeouts remain intact.
 
 ## Migration phases
 
@@ -91,7 +101,7 @@ The console adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
 - Former TUI operations are available from the browser with job state, log tail and cancellation.
 - Responsive layout supports desktop, tablet and narrow mobile screens.
 
-### Phase 2 — Soak period and parity validation
+### Phase 2 — Soak period and parity validation — in progress
 
 Keep the old `internal/tui` implementation for one compatibility release while validating:
 
@@ -101,7 +111,16 @@ Keep the old `internal/tui` implementation for one compatibility release while v
 - OIDC operator/admin flows work behind the intended reverse proxy;
 - `/healthz`, `/metrics`, control plane and recovery wizard remain backward-compatible.
 
-During this phase, add end-to-end browser tests and audit-record assertions for every web-triggered mutation.
+Hardening already completed in this phase:
+
+- browser mutation audit records with actor/request correlation;
+- fail-closed behavior when required audit storage is unavailable;
+- HTTP regression tests for operation completion, rejection and cancellation;
+- local-origin/DNS-rebinding regression coverage;
+- SSE live job/log delivery with reconnect-safe full snapshots and polling fallback;
+- race coverage for the job/audit/event paths.
+
+Remaining soak work should focus on true browser E2E tests, OIDC reverse-proxy integration and long-duration refresh/reconnect scenarios.
 
 ### Phase 3 — Remove terminal UI dependencies
 
@@ -119,7 +138,6 @@ CLI commands are **not** removed.
 Recommended next increments:
 
 - persisted job history instead of only the active/last in-memory job;
-- Server-Sent Events for log delivery instead of one-second polling;
 - per-operation structured result summaries;
 - repository-level backup/verify filters;
 - config validation/editor with secrets never returned to the browser;
@@ -132,12 +150,15 @@ Recommended next increments:
 - `repoark` starts successfully with the default config and binds only to `127.0.0.1:9787`.
 - the dashboard loads without Node.js or external static assets;
 - backup/verify can be started from the browser and produce live job state/logs;
+- live job/log updates use SSE when available and converge after reconnect;
 - a second operation receives HTTP 409 while one is running;
 - cancel propagates through the operation context;
 - disabled features cannot be started even by direct API calls;
 - no-auth web console refuses non-loopback listen addresses;
 - authenticated mutations enforce RepoArk roles and CSRF;
 - dangerous remote GitLab operations require admin step-up;
+- recognized web mutations are represented in the tamper-evident audit ledger;
+- `audit.required` blocks mutation when the audit ledger is unavailable;
 - existing `/healthz`, `/metrics`, `/api/v1/*`, and `/restore` behavior remains available in console mode;
 - CLI commands and daemon/systemd workflows remain unchanged.
 
