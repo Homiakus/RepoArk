@@ -109,12 +109,17 @@ func (c *consoleServer) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("POST /restore/approve", s.restoreApprove)
 		mux.HandleFunc("POST /restore/schedule", s.restoreSchedule)
 	}
-	mux.HandleFunc("GET /", c.dashboard)
+	mux.HandleFunc("/", c.dashboard)
 }
 
 func (c *consoleServer) dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if c.base.auth != nil {
