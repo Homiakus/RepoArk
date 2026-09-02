@@ -38,12 +38,11 @@ RepoArk is split into five recovery planes so that no single service is also the
 - `internal/manifest` — machine-readable recovery inventory, signed latest/history manifests and retention.
 - `internal/gitlab` — Compose generation, local/SSH deployment, namespace-preserving project migration, GitLab recovery exports and isolated full-service restore drills.
 - `internal/offsite` — restic/rclone orchestration plus guarded S3 Object Lock replication; object-store encryption remains delegated to mature external tools.
-- `internal/observability` — read-only health/readiness/Prometheus/status HTTP surface, including fleet and audit status.
+- `internal/observability` — health/readiness/Prometheus/status HTTP surface plus the embedded browser console, SSE job stream, OIDC/RBAC/CSRF enforcement and audited interactive-operation adapter.
 - `internal/notify` — generic JSON webhook and Telegram delivery using environment-backed secrets.
 - `internal/fleet` — bounded-concurrency execution across multiple GitHub identities and independent backup roots.
 - `internal/audit` — append-only hash-chain operation ledger with signed head checkpoints.
-- `internal/tui` — Bubble Tea state machine and Lip Gloss presentation.
-- `internal/app` — CLI/TUI routing, doctor, foreground scheduler and command composition.
+- `internal/app` — CLI routing, doctor, foreground scheduler and command composition.
 
 ## Critical vs best-effort data
 
@@ -127,15 +126,19 @@ A failed cycle does not terminate the foreground scheduler permanently unless it
 
 Successful repositories are sorted and a daily deterministic offset chooses the configured sample. This produces reproducible daily selection while rotating through the repository fleet over time. Each selected repository is restored into an isolated path, checked with `git fsck`, optionally compared against mirror branch/tag refs, and checked with `git lfs fsck` when applicable.
 
-## Observability boundary
+## HTTP and browser-console boundary
 
-The HTTP server is intentionally read-only and uses the Go standard library. It exposes the latest backup state, not control operations. The default listener is loopback-only; authentication/TLS is expected at a reverse proxy if operators deliberately expose it remotely.
+The Go HTTP server owns both read-only operational telemetry and the interactive browser adapter. `/healthz`, `/readyz`, `/metrics`, status/fleet/policy/control-plane reads and the recovery wizard remain on the same service boundary; `/api/v1/console/*` adds explicit interactive operations without moving backup/recovery algorithms into frontend code.
+
+Without OIDC web authentication, the interactive console may bind only to an explicit loopback address and browser mutations must pass loopback Host plus same-origin checks. With `control_plane.web_auth` enabled, remote browser reads and mutations reuse encrypted OIDC sessions, role mapping, CSRF validation and step-up evidence. Viewer is read-only, operator may run normal/elevated actions, and dangerous actions require admin plus configured step-up AMR/ACR.
+
+Interactive work is single-flight. `consoleJobManager` keeps the active/last job, bounded log tail and cooperative cancellation context. Server-Sent Events publish complete immutable job snapshots by monotonically increasing revision, so browser refresh/reconnect converges without putting backpressure on backup work. Recognized browser mutations are correlated to actor/request IDs in the tamper-evident audit ledger; `audit.required` fails closed if required audit persistence is unavailable.
 
 ## Failure model
 
 Repository jobs use bounded concurrency. A repository-level core failure is recorded in the manifest and does not discard successful backups of other repositories. The backup command exits non-zero if any repository failed.
 
-Cancellation propagates through Git/API subprocess work. Best-effort GitHub platform errors are retained in `warnings` and surfaced through TUI/status/metrics instead of disappearing into logs.
+Cancellation propagates through Git/API subprocess work. External subprocess trees are cancelled as a unit on supported platforms so wrappers cannot leave descendants holding inherited stdout/stderr handles. Best-effort GitHub platform errors are retained in `warnings` and surfaced through the browser console/status/metrics instead of disappearing into logs.
 
 ## v0.6 HA data-plane extension
 

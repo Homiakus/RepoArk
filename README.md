@@ -1,6 +1,6 @@
 # RepoArk v0.8.0
 
-**RepoArk** is a Go + Charm terminal disaster-recovery platform for GitHub/GitHub Enterprise repositories, GitHub platform data and a self-hosted GitLab recovery target.
+**RepoArk** is a Go disaster-recovery platform for GitHub/GitHub Enterprise repositories, GitHub platform data and a self-hosted GitLab recovery target. Interactive operation is provided by a self-contained browser console embedded in the RepoArk binary; the CLI remains the automation and break-glass interface.
 
 The design assumes that a useful source-control backup must prove **recoverability**, not merely copy `.git` directories. v0.8 extends the distributed storage/recovery layer with durable object lifecycle, distributed erasure placement, media telemetry, background scrub/repair and safe storage tiering, so RepoArk now separates eight planes:
 
@@ -8,7 +8,7 @@ The design assumes that a useful source-control backup must prove **recoverabili
 2. **GitHub platform plane** — issues/PRs/reviews, releases/assets, Discussions, Packages, Actions artifacts, Projects v2 and official migration exports.
 3. **GitLab recovery plane** — deployment, namespace-preserving migration, application/config backup and disposable full restore drills.
 4. **Durability plane** — content-addressed deduplication, restic/rclone, immutable S3 Object Lock.
-5. **Control/trust plane** — Charm TUI, fleet orchestration, RPO/RTO policies, web dashboard, metrics, notifications, signed manifests and tamper-evident audit.
+5. **Control/trust plane** — browser console, fleet orchestration, RPO/RTO policies, metrics, notifications, signed manifests and tamper-evident audit.
 6. **Orchestration plane** — SQLite/PostgreSQL state, leased jobs, per-repository schedules, immutable backup generations, local workers and mutually authenticated remote agents.
 7. **HA data plane** — encrypted generation replication, topology-aware placement, durable transfer leases, replica quorum health, safe restore failover/failback and approval-gated recovery.
 8. **Distributed storage/recovery plane** — resumable encrypted transfers, storage-health/capacity scheduling, compact Merkle CAS reconciliation, rendezvous object placement, bounded-memory erasure parity and OIDC recovery UI.
@@ -54,7 +54,7 @@ v0.7 keeps generation-level HA as the primary recovery contract and adds an opt-
 - browser point-in-time recovery wizard protected by OIDC Authorization Code + PKCE, encrypted HttpOnly sessions, CSRF tokens and group-based viewer/operator/admin roles;
 - optional OIDC `amr` step-up requirements such as `webauthn`/`mfa` for approve/schedule operations;
 - browser restores are deliberately staged only under `control_plane.generations.restore_root`; arbitrary filesystem targets remain an explicit CLI-admin capability;
-- storage health/inventory state in SQL, API, Prometheus and Charm TUI;
+- storage health/inventory state in SQL, API, Prometheus and the then-current operator UI;
 - config schema v7 and SQL schema marker v4, with rolling-upgrade-safe behavior for v0.6 agents that have not yet reported storage health.
 
 A live heartbeat is therefore no longer enough to make a node a placement target. During a mixed-version rollout an agent with unknown storage health remains readable for emergency recovery, but is not allowed to receive new replicas or satisfy durable quorum until it reports v0.7 storage telemetry.
@@ -74,7 +74,7 @@ v0.6 keeps the v0.5 control-plane API and adds an opt-in **HA data plane**:
 - safe failback: when the original storage owner returns, restore routing prefers it again without deleting redundant copies;
 - two-person restore approval workflow with expiration, requester/approver allowlists and atomic `approved → scheduled → executed` transitions;
 - configurable agent heartbeat labels for placement decisions;
-- replication/quorum/transfer/approval state in TUI, API and Prometheus;
+- replication/quorum/transfer/approval state in the then-current operator UI, API and Prometheus;
 - deterministic chaos tests for storage-node loss, replica replacement, failover/failback, topology deficits and archive traversal;
 - config schema v6, backward compatible with v5 defaults.
 
@@ -156,8 +156,10 @@ Required:
 
 - Go 1.25+;
 - `git`;
-- no local database daemon is needed for the default SQLite control plane.
+- no local database daemon is needed for the default SQLite control plane;
 - GitHub auth via token environment variable or authenticated `gh`.
+
+The RepoArk runtime has no Node.js or browser-framework dependency. Browser assets are embedded in the Go binary.
 
 Feature-specific:
 
@@ -198,12 +200,16 @@ repoark doctor
 repoark
 ```
 
+`repoark` starts the browser console on the configured loopback listener. Use `repoark web` when an explicit command is preferred.
+
 Never put PATs, AWS secrets, webhook URLs containing credentials or GitLab tokens in `config.yml`. RepoArk configuration stores only environment-variable names/profiles/key IDs.
 
 ## Main CLI
 
 ```text
-repoark                               Open Charm TUI
+repoark                               Open the embedded browser console
+repoark web                           Open the embedded browser console explicitly
+repoark tui                           Deprecated compatibility alias for `repoark web`
 repoark init [--force]                Create configuration
 repoark doctor                        Check prerequisites
 repoark backup                        Backup primary GitHub account
@@ -230,7 +236,7 @@ repoark cas erasure-reconstruct SHA256 OUTPUT
 repoark storage disk-health           Show SMART/NVMe + filesystem health
 repoark storage scrub                 Run bounded CAS scrub/optional repair
 repoark storage tier                  Copy eligible CAS objects to cold tier
-repoark serve                         Dashboard + health/metrics/API
+repoark serve                         Compatibility alias for the browser console
 repoark daemon                        Legacy scheduled control loop
 repoark control serve                 Durable scheduler + local workers + optional mTLS agent API
 repoark control sync                  Discover repositories into SQL state
@@ -271,24 +277,20 @@ repoark github export org ORG         Official organization migration export
 
 Global: `--config PATH`.
 
-## TUI
+## Browser console
 
-| Key | Action |
-| --- | --- |
-| `b` | primary backup |
-| `f` | fleet backup |
-| `v` | verify |
-| `t` | repository restore drill |
-| `x` | full GitLab restore drill |
-| `c` | CAS compaction |
-| `p` | policy check |
-| `d` | GitLab deploy/update |
-| `m` | migrate mirrors to GitLab |
-| `g` | GitLab application/config backup |
-| `o` | off-site replication |
-| `r` | refresh |
-| `Esc` / `Ctrl+C` | cancel active operation |
-| `q` | quit while idle |
+The primary interactive UI is a responsive, dependency-free browser console embedded in the Go binary. It exposes the former terminal actions as explicit operation cards, streams active job/log snapshots over Server-Sent Events, falls back to low-frequency polling when SSE is unavailable and supports cooperative cancellation.
+
+Important execution rules:
+
+- only one interactive mutation can run at a time;
+- refresh/reconnect converges on the same active job through revisioned SSE snapshots;
+- cancellation propagates through external subprocess trees rather than killing only a wrapper process;
+- without OIDC the interactive listener must be loopback-only and browser mutations are protected against cross-origin/DNS-rebinding requests;
+- remote access uses OIDC Authorization Code + PKCE, encrypted sessions, RBAC, CSRF and optional AMR/ACR step-up;
+- recognized browser mutations are written to the tamper-evident audit ledger, and `audit.required` fails closed.
+
+The old Bubble Tea/Lip Gloss implementation has been removed. `repoark tui` remains only as a compatibility command that redirects to the browser console.
 
 ## Durable control plane
 
@@ -365,7 +367,7 @@ Because the current bundle is replaced atomically, RepoArk can hard-link it into
 
 ## mTLS worker agents
 
-The agent listener is separate from the read-only dashboard. It requires a valid client certificate and TLS 1.3. The server derives worker identity from the verified certificate and ignores user-supplied identity fields. Generation/result reports are accepted only for a job currently leased to that certificate identity.
+The agent listener is separate from the browser/observability listener. It requires a valid client certificate and TLS 1.3. The server derives worker identity from the verified certificate and ignores user-supplied identity fields. Generation/result reports are accepted only for a job currently leased to that certificate identity.
 
 Small deployment bootstrap:
 
@@ -533,7 +535,7 @@ repoark control approve restore-...
 repoark control restore-approved restore-...
 ```
 
-When the gate is enabled, direct generation restore paths refuse to bypass it. Scheduling is atomic in the state store and successful job completion moves the approval to `executed`. The built-in actor model uses the local OS account; use restricted host access/external identity controls for stronger enterprise RBAC.
+When the gate is enabled, direct generation restore paths refuse to bypass it. Scheduling is atomic in the state store and successful job completion moves the approval to `executed`. The CLI actor model uses the local OS account; remote browser operations can additionally use the OIDC/RBAC/step-up boundary described above.
 
 ## Content-addressed storage
 
@@ -702,7 +704,7 @@ Fast CI remains in `.github/workflows/ci.yml`.
 
 `.github/workflows/gitlab-restore-drill.yml` is a separate weekly/manual slow test. It:
 
-1. builds RepoArk with real Go/Charm/YAML dependencies;
+1. builds the actual RepoArk Go binary with the production module graph;
 2. starts a real pinned GitLab container;
 3. waits for health;
 4. creates a real GitLab application/config archive;
@@ -715,7 +717,7 @@ The underlying workflow can also be executed locally:
 ./scripts/integration-gitlab-drill.sh
 ```
 
-## Web dashboard and metrics
+## Browser console, dashboard and metrics
 
 ```yaml
 observability:
@@ -723,22 +725,29 @@ observability:
   listen: 127.0.0.1:9787
 ```
 
-Then:
+Primary interactive launch:
 
 ```bash
-repoark serve
+repoark
+# or
+repoark web
 ```
 
-Endpoints:
+The console preserves the operational/read endpoints on the same service boundary, including:
 
-- `/` — self-contained fleet dashboard;
+- `/` — embedded responsive browser console;
 - `/healthz`, `/readyz`;
 - `/api/v1/status`;
 - `/api/v1/fleet`;
 - `/api/v1/policy`;
+- `/api/v1/control/*` when enabled;
+- `/api/v1/console/*` for interactive operation state/actions/SSE;
+- `/restore` and `/auth/*` when OIDC recovery UI is enabled;
 - `/metrics`.
 
-The dashboard uses no external JavaScript/CSS/CDN and refreshes every 30 seconds.
+The UI has no external JavaScript/CSS/CDN dependency. A real Chromium CI gate launches the compiled binary and verifies desktop/mobile rendering, SSE reconnect/cancellation, local security boundaries and the authenticated OIDC/PKCE/RBAC/CSRF/step-up path through a disposable HTTPS reverse proxy.
+
+`repoark serve` is retained as a compatibility alias for the same browser console.
 
 ## Backup tree (abridged)
 
@@ -775,13 +784,14 @@ Manifest artifact paths stay relative to the logical backup root, so a complete 
 - immutable copy never propagates deletion;
 - restore drills always target isolated paths/containers;
 - COMPLIANCE retention needs an explicit high-risk flag;
-- all portable payloads use SHA-256 integrity metadata.
+- all portable payloads use SHA-256 integrity metadata;
+- unauthenticated interactive browser access is loopback-only;
+- remote browser mutations require OIDC session/RBAC/CSRF and configured step-up for dangerous actions.
 
 ## Known boundaries
 
 - v0.6 HA replication is generation-oriented: only content reachable from retained generations is transferred; it intentionally does not mirror orphaned CAS blobs. The destination rehydrates/deduplicates its CAS from the verified generation.
-- Built-in restore authorization is two-person local-operator approval, not a full OIDC/LDAP RBAC service.
-
+- CLI restore approval uses the local OS actor model; browser recovery can add OIDC group RBAC and AMR/ACR step-up, but RepoArk is not an LDAP directory or identity provider.
 - GitHub does not expose repository/action secrets for backup; preserve secret sources separately.
 - Packages differ by ecosystem; metadata backup is broader than payload backup. Unsupported/ambiguous package versions are reported as warnings rather than silently marked complete.
 - Maven payload download currently requires GitHub package naming from which `groupId:artifactId` can be inferred.
@@ -789,7 +799,6 @@ Manifest artifact paths stay relative to the logical backup root, so a complete 
 - A local unit/contract test is not equivalent to the slow real GitLab integration workflow; both are intentionally kept.
 
 See `docs/V0.4.0.md`, `docs/PACKAGE_DR.md`, `docs/CAS_AND_POLICY.md` and `docs/UPGRADE_V0.3_TO_V0.4.md` for implementation details.
-
 
 ### PostgreSQL HA and storage
 
