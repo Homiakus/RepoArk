@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -237,6 +238,10 @@ func (c *consoleServer) authorizeRead(w http.ResponseWriter, r *http.Request) bo
 
 func (c *consoleServer) authorizeMutation(w http.ResponseWriter, r *http.Request, stepUp bool) bool {
 	if c.base.auth == nil {
+		if !localMutationAllowed(r) {
+			writeConsoleJSON(w, http.StatusForbidden, map[string]any{"error": "local web mutation rejected: request host/origin is not loopback same-origin"})
+			return false
+		}
 		return true
 	}
 	role := webauth.RoleOperator
@@ -272,6 +277,34 @@ func writeConsoleJSON(w http.ResponseWriter, status int, value any) {
 
 func errorsIsJobRunning(err error) bool {
 	return err == errConsoleJobRunning
+}
+
+func localMutationAllowed(r *http.Request) bool {
+	host := strings.TrimSpace(r.Host)
+	requestHost := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		requestHost = h
+	}
+	requestHost = strings.Trim(requestHost, "[]")
+	if !strings.EqualFold(requestHost, "localhost") {
+		ip := net.ParseIP(requestHost)
+		if ip == nil || !ip.IsLoopback() {
+			return false
+		}
+	}
+
+	source := strings.TrimSpace(r.Header.Get("Origin"))
+	if source == "" {
+		source = strings.TrimSpace(r.Referer())
+	}
+	if source == "" {
+		return true
+	}
+	u, err := url.Parse(source)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, host)
 }
 
 func loopbackListen(addr string) bool {
