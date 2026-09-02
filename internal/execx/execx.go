@@ -24,6 +24,9 @@ func Run(ctx context.Context, dir string, env []string, name string, args ...str
 	err := cmd.Run()
 	res := Result{Stdout: strings.TrimSpace(out.String()), Stderr: strings.TrimSpace(errOut.String())}
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return res, ctxErr
+		}
 		return res, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, res.Stderr)
 	}
 	return res, nil
