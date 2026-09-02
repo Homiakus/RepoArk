@@ -74,12 +74,11 @@ A GitHub/API/storage failure fails that repository job, not the entire scheduler
 
 Generation creation is completed before SQL marks that backup successful. Therefore SQL never intentionally points `last_generation_id` at a generation that was not fully written.
 
-
 ## Node affinity and stranded work
 
 Normal repository backup jobs have no affinity and may be leased by any eligible worker. Once a local control-plane worker creates a path-bound follow-up, the job inherits the reserved `__repoark_local__` lease identity. A remote agent's `mirror-gitlab` follow-up contains mirror/LFS paths local to that agent, so the mTLS server overrides the child job affinity with the authenticated certificate identity. SQL leasing only returns an affinitized job to that identity.
 
-`Stats.StrandedJobs` counts queued/running affinitized jobs whose owning agent has not heartbeated in the recent window. This is exported through `/api/v1/control/stats`, the dashboard/TUI and Prometheus (`repoark_control_jobs_stranded`). A stranded job is deliberately visible instead of being silently reassigned to a node that cannot see its storage.
+`Stats.StrandedJobs` counts queued/running affinitized jobs whose owning agent has not heartbeated in the recent window. This is exported through `/api/v1/control/stats`, the browser console/status APIs and Prometheus (`repoark_control_jobs_stranded`). A stranded job is deliberately visible instead of being silently reassigned to a node that cannot see its storage.
 
 ## Orchestrated point-in-time restore
 
@@ -97,7 +96,6 @@ The normal observability/dashboard listener remains read-only. RepoArk intention
 A successful complete GitHub discovery marks repositories that disappeared from that account as disabled while retaining their history/generation index. An incomplete listing that hits the configured page limit is an error, so reconciliation does not disable repositories from a truncated inventory.
 
 Filesystem generation retention and SQL generation retention are pruned together. Removing an old immutable generation therefore cannot leave a stale SQL entry that appears restorable.
-
 
 For multi-instance PostgreSQL control planes, `__repoark_local__` assumes the local worker group sees the same backup/generation filesystem. If control-plane instances use node-local disks, run them as explicit mTLS storage agents or provide shared/replicated storage; SQL HA alone does not make local files highly available.
 
