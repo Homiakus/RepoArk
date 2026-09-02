@@ -21,9 +21,9 @@ Run the primary browser console explicitly with:
 repoark web
 ```
 
-Running `repoark` without a command starts the same console. `repoark tui` is a deprecated compatibility alias that also starts the web console; there is no separate terminal UI implementation.
+Running `repoark` without a command starts the same console. `repoark tui` is a deprecated compatibility alias and `repoark serve` is a compatibility alias; both are routed by the top-level entrypoint to the browser console. There is no separate terminal UI implementation.
 
-`repoark serve` remains available for the traditional observability server entrypoint, and `repoark daemon` starts observability automatically when `observability.enabled: true`.
+When `observability.enabled: true`, `repoark daemon` also starts the observability server used by the scheduler process.
 
 ## Exposure and authentication
 
