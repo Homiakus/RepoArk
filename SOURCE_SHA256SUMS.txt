@@ -3,7 +3,7 @@ ba6aac7b14ec34b8f649af127616ceee181c3a3c46f27ecc234258013fee0be4  ./.github/work
 e6d10c43ba7898f31ab2793c57449843cdf139bcb86964d76e29196981c4af3b  ./.github/workflows/distributed-storage.yml
 1e53a7ca579fd8eae1b98fd43399fe14f548ccaa3df4169c63fc2fc9a7313cb3  ./.github/workflows/gitlab-restore-drill.yml
 8888368fe58cffc4aad147bc22af37b0ef376d2ba41ce19161dd8f9fd6fbd650  ./.github/workflows/ha-chaos.yml
-6acab577365322db0fa4eac13bca6e449982363e8dc70c74397069f69a08a711  ./.github/workflows/web-e2e.yml
+529ec4a7bffc723440f0b258ff1954320704e7779432eae45d1839107e8fb41d  ./.github/workflows/web-e2e.yml
 557c6b9b9f51ef1f58ef883d36b3996bfffbea500e3b691839f181b09b9c4396  ./.gitignore
 ea38cf708c1c8ba2fc171aa7e63b957b7e10bf59254c8285f6883ed32146c6d6  ./CHANGELOG.md
 df6025fbec810b1e902068d41d33631c6d1f96166ace62f79b2c1b18221076e7  ./LICENSE
@@ -11,6 +11,7 @@ df6025fbec810b1e902068d41d33631c6d1f96166ace62f79b2c1b18221076e7  ./LICENSE
 dfc2a9924ddcfff6395e67f19d95d7c181431cea89cf81b19b0ed043083b633d  ./README.md
 55497a564c8a3d2a0fbdc18c0da1df7b9247552d370dfbc32914d4e97469525f  ./SOURCE_SHA256SUMS.HISTORICAL.txt
 b1048fe3c556b74614d981fc9d02d8e289dd02034b76b67ce76fb26faf2767d3  ./cmd/repoark/main.go
+75dac5dc6245a5c9d3ae8a9c0006a5cedee4f23319ae51ddb68343e1f1b4ecc9  ./cmd/repoark/main_test.go
 45910c86a139967e90a4fcc420a607ce14808503e50055acf692c1b9dfc9c47f  ./configs/config.example.yml
 f0a4f164274ca8f00611addedd3ca13b61d463073f894d0678f386e90cb01dcc  ./deploy/systemd/repoark-control.service
 cd8de639cc9b4a189baa33950e2b484802f47e6605b953379d68f474351d19e4  ./deploy/systemd/repoark.service
@@ -48,7 +49,7 @@ e6715238a9a934cc333c8ebece84fd3e2f556d06d6603949bfe9fe63e11f317f  ./docs/V0.8.0.
 cf82cd5255d06a219241f64bd54f75970eb1f8494f24ba79c15f51d5e4942e9a  ./docs/WEB_RECOVERY.md
 0d17148e9dfb7e6be5072dd6c8471afefb9587eb8e64f22b69117a220d82a8d3  ./docs/WEB_UI_MIGRATION.md
 84fb5f61af5018dba66201e6c10dac8a91f656455ec2f50b25de132a1e937650  ./e2e/web-console-auth.mjs
-17862de33181b29e65272e595dda1a7e53061ab70368c24cc77ba014e107e599  ./e2e/web-console-smoke.mjs
+658f916979c1126c3b742a37b604252386cbb076a15bff42244f1b164de99c65  ./e2e/web-console-smoke.mjs
 27549e7abb0d5770be3065e55d18ef2539540a66b8604e051747c20170fc729a  ./go.mod
 5f36d60f2331d12140133a1523d54100fd94a0a893bff4ca57b50a50422ccd43  ./go.sum
 0de575428d65e1308370826abf32ad0b19d5605b3bc6d64796d5df23436afd10  ./internal/app/app.go
@@ -98,8 +99,11 @@ ce0cc5736648a297f764df609df34ac914104146139e2e93636b94bde55d9797  ./internal/con
 8b8798bb5ba8dd73cf54e22d62486db3e7d4091018bddb59850eefba7f27c3fa  ./internal/e2eauth/main.go
 b53e40649199629d1c0377fc1b7a2a6025acd4740575e0ddf621d759340a1661  ./internal/erasure/erasure.go
 68268e5a56daccca5a924bb8f9f10696861d084fe0a23c3ce0bed214001aea49  ./internal/erasure/erasure_test.go
-f7be50795efcbd43e4c0f6df1c8d57b0436bf370f6681bb41852abef8206c81e  ./internal/execx/execx.go
-1d5458c6bd485e5dea7a44b983f944d901c62ec75246e2952f0654537596321b  ./internal/execx/execx_test.go
+90899137a6e2bdaeae23a52f03146b117ae8f99b7c83940eff6dc83f68a8e3c9  ./internal/execx/cancel_fallback.go
+1f8990b3ef3e51282f51e37812e4832e8a7b045fbbc889b3fb99e642f3a35237  ./internal/execx/cancel_posix.go
+7649e7d911cebbb2d8062f30281e1361bc933737d04a2617d592efb46f2324d0  ./internal/execx/cancel_windows.go
+35d8bc23b3584089d99563cd06f59f441aba57bc530a6d2f497e0d7b4c2deb9c  ./internal/execx/execx.go
+1fa0ebcbdcd9985e4cda84a167256dcc69e375c953e901340f41c8e57d0e767d  ./internal/execx/execx_test.go
 ed381668502febc335e0163351a963f80e50d1dd4e4ee841eebd54853430d464  ./internal/fleet/fleet.go
 d7dbe8fc4e5cd46c9b6b8d7cace74c25273380b1870b5020b50b76a39eb323a0  ./internal/generation/generation.go
 b990d26457a642187a17f0d3f9fdc9299200b7b9dbd7a37e9a6d5f0ddd6e474a  ./internal/generation/generation_test.go
@@ -124,6 +128,7 @@ fe5e0f21c63583d758697a04d36c929aef9a22bab5d344a519728fc80a1cfd58  ./internal/not
 649f6f8c0ee9e8e2f356558fcd3dd01f71f94ae0dc3db9a47b7416ea96a175e6  ./internal/objectinventory/inventory_test.go
 671e72de2d4438df477ce613e924dbbeee0a95bbf6ffaca95d81f358eb9e1cf6  ./internal/observability/console_dashboard.go
 6fc9f9e69426f86e40a4bf4e97a9ab446b2320f54b4cfcc9780570eb1b41208d  ./internal/observability/console_ops.go
+87680e4a119c66d39a4d49603607560943f4e7f797cc2e0f0e878b48a7fe5a00  ./internal/observability/console_parity_test.go
 f10e6d21172c73a800024665e7db8e50408a50a01a33472be9887ca477c6671e  ./internal/observability/console_server.go
 cfc00883825bd1b0f31d37d9b771be8a7430d445aac5aa135cd0b11965afdb0a  ./internal/observability/console_sse.go
 5cf55ec81731ad2fcf9556d5fa9d2e8a791200dd36cf6990a1f2e1752d07b000  ./internal/observability/console_sse_test.go

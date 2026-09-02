@@ -16,6 +16,7 @@ type Result struct {
 
 func Run(ctx context.Context, dir string, env []string, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	configureCommandCancellation(cmd)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	var out, errOut bytes.Buffer
@@ -24,6 +25,9 @@ func Run(ctx context.Context, dir string, env []string, name string, args ...str
 	err := cmd.Run()
 	res := Result{Stdout: strings.TrimSpace(out.String()), Stderr: strings.TrimSpace(errOut.String())}
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return res, ctxErr
+		}
 		return res, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, res.Stderr)
 	}
 	return res, nil

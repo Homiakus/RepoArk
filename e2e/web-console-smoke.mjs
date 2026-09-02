@@ -22,6 +22,24 @@ page.on('console', message => {
   consoleErrors.push(text);
 });
 
+async function readJob() {
+  const response = await fetch(`${baseURL}/api/v1/console/job`);
+  assert.equal(response.status, 200, 'job endpoint should return HTTP 200');
+  return (await response.json()).job;
+}
+
+async function waitForJobState(states, timeoutMs = 10_000) {
+  const allowed = new Set(states);
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await readJob();
+    if (last && allowed.has(last.state)) return last;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error(`job did not reach ${states.join('/')} within ${timeoutMs} ms; last=${JSON.stringify(last)}`);
+}
+
 try {
   const sseResponsePromise = page.waitForResponse(
     response => response.url() === `${baseURL}/api/v1/console/events`,
@@ -67,6 +85,48 @@ try {
     .filter(entry => new URL(entry.name).pathname === '/api/v1/console/job').length);
   assert(jobPollCount <= 1, `SSE connected but job polling repeated ${jobPollCount} times`);
 
+  // Start a safe, deliberately slow offsite operation. CI shadows `restic` with
+  // a sleeping test executable, so this exercises the real execx/offsite/web
+  // stack without network or backup side effects.
+  const started = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/console/jobs/offsite', { method: 'POST' });
+    return { status: response.status, body: await response.json() };
+  });
+  assert.equal(started.status, 202, `offsite start failed: ${JSON.stringify(started.body)}`);
+  const running = await waitForJobState(['running']);
+  assert.equal(running.name, 'offsite');
+  assert.equal(running.id, started.body.job.id);
+
+  // Reload while the subprocess is still active. The in-memory server-side job
+  // must survive the browser lifecycle and the new EventSource must converge on
+  // the same job ID/state rather than creating or losing an operation.
+  const reconnectPromise = page.waitForResponse(
+    response => response.url() === `${baseURL}/api/v1/console/events`,
+    { timeout: 15_000 },
+  );
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const reconnect = await reconnectPromise;
+  assert.equal(reconnect.status(), 200, 'SSE reconnect after refresh failed');
+  await page.waitForFunction(
+    expectedID => typeof currentJob !== 'undefined' && currentJob?.id === expectedID && currentJob?.state === 'running',
+    running.id,
+    { timeout: 10_000 },
+  );
+  assert.equal(await page.locator('#jobTitle').textContent(), 'offsite', 'reconnected UI should render the active operation');
+  const afterReload = await readJob();
+  assert(afterReload, 'active job disappeared after browser refresh');
+  assert.equal(afterReload.id, running.id, 'browser refresh changed active job identity');
+  assert.equal(afterReload.state, 'running', 'slow operation should still be running after refresh');
+
+  const cancelled = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/console/job/cancel', { method: 'POST' });
+    return { status: response.status, body: await response.json() };
+  });
+  assert.equal(cancelled.status, 202, `cancel request failed: ${JSON.stringify(cancelled.body)}`);
+  const terminal = await waitForJobState(['cancelled'], 10_000);
+  assert.equal(terminal.id, running.id, 'cancel completed a different job');
+  assert.match(terminal.error || '', /context canceled/i, 'cancelled subprocess should preserve context cancellation');
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#actions .action').first().waitFor({ timeout: 10_000 });
@@ -78,7 +138,7 @@ try {
 
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   assert.deepEqual(consoleErrors, [], `browser JavaScript console errors:\n${consoleErrors.join('\n')}`);
-  console.log(`RepoArk web E2E passed: actions=${actionCount}, repeatedJobPolls=${jobPollCount}`);
+  console.log(`RepoArk web E2E passed: actions=${actionCount}, repeatedJobPolls=${jobPollCount}, refreshJob=${running.id}, cancel=${terminal.state}`);
 } catch (error) {
   await page.screenshot({ path: `${artifactsDir}/failure.png`, fullPage: true }).catch(() => {});
   throw error;

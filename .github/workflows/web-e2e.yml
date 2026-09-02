@@ -46,11 +46,32 @@ jobs:
           REPOARK_E2E_ARTIFACTS: artifacts/web-e2e
         run: |
           set -euo pipefail
-          mkdir -p artifacts/web-e2e "$RUNNER_TEMP/repoark-e2e"
-          cat > "$RUNNER_TEMP/repoark-e2e/config.yml" <<EOF
+          e2e_root="$RUNNER_TEMP/repoark-e2e"
+          mkdir -p artifacts/web-e2e "$e2e_root/backups" "$e2e_root/bin"
+
+          # Safe long-running external command used to prove browser refresh,
+          # SSE reconnect, process cancellation and context propagation without
+          # contacting a real restic repository.
+          cat > "$e2e_root/bin/restic" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [[ "${1:-}" == "backup" ]]; then
+            echo "repoark e2e restic backup started"
+            sleep 60
+            exit 0
+          fi
+          echo "repoark e2e restic ${1:-noop}"
+          exit 0
+          EOF
+          chmod +x "$e2e_root/bin/restic"
+          export PATH="$e2e_root/bin:$PATH"
+          export RESTIC_REPOSITORY="$e2e_root/restic-repository"
+          export RESTIC_PASSWORD="repoark-e2e"
+
+          cat > "$e2e_root/config.yml" <<EOF
           version: 8
           backup:
-            root: $RUNNER_TEMP/repoark-e2e/backups
+            root: $e2e_root/backups
           security:
             require_verification: false
             sign_manifests: false
@@ -61,6 +82,12 @@ jobs:
           policy:
             enabled: false
             require_signed_manifest: false
+          offsite:
+            enabled: true
+            backend: restic
+            repository_env: RESTIC_REPOSITORY
+            password_env: RESTIC_PASSWORD
+            prune: false
           observability:
             enabled: true
             listen: 127.0.0.1:19787
@@ -68,7 +95,7 @@ jobs:
             enabled: false
           EOF
 
-          ./repoark --config "$RUNNER_TEMP/repoark-e2e/config.yml" web > artifacts/web-e2e/server.log 2>&1 &
+          ./repoark --config "$e2e_root/config.yml" web > artifacts/web-e2e/server.log 2>&1 &
           server_pid=$!
           cleanup() {
             kill "$server_pid" 2>/dev/null || true
