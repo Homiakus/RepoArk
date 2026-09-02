@@ -12,9 +12,9 @@ import (
 const maxRecentRecords = 4096
 
 // Recent returns at most limit verified records matching action, newest first.
-// An empty action matches every record. The ledger is verified before any
-// records are returned so callers never build operational state from a broken
-// hash chain.
+// An empty action matches every record. Verification and the subsequent read
+// share the audit mutex so no concurrent Append can move the ledger between
+// those two steps.
 func Recent(path string, limit int, action string) ([]Record, error) {
 	if limit <= 0 {
 		return []Record{}, nil
@@ -22,7 +22,10 @@ func Recent(path string, limit int, action string) ([]Record, error) {
 	if limit > maxRecentRecords {
 		limit = maxRecentRecords
 	}
-	if _, err := Verify(path); err != nil {
+
+	mu.Lock()
+	defer mu.Unlock()
+	if _, err := verifyLocked(path); err != nil {
 		return nil, err
 	}
 
