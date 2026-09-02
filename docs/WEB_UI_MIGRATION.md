@@ -1,6 +1,6 @@
 # RepoArk TUI → Web UI migration
 
-Status: **web console implemented as the primary interactive UI**. The CLI remains the automation and break-glass interface. `repoark tui` is kept temporarily as a compatibility alias that starts the web console.
+Status: **implementation complete**. The browser console is the primary interactive UI, the legacy Charm terminal implementation has been removed, and the CLI remains the automation/break-glass interface. `repoark tui` is intentionally retained only as a deprecated compatibility alias that starts the web console; removing that alias is deferred to a future breaking window.
 
 ## Goals
 
@@ -44,7 +44,7 @@ The web layer is an adapter only. It does not duplicate repository backup, verif
 
 The console exposes the former TUI actions as explicit cards:
 
-| TUI action | Web operation | Availability |
+| Former TUI action | Web operation | Availability |
 |---|---|---|
 | backup | `backup` | always |
 | fleet | `fleet-backup` | `fleet.enabled` |
@@ -58,7 +58,7 @@ The console exposes the former TUI actions as explicit cards:
 | GitLab backup | `gitlab-backup` | `gitlab.enabled` |
 | offsite sync | `offsite` | `offsite.enabled` |
 
-Only one operation can run at a time. This deliberately preserves the TUI execution invariant and avoids concurrent mutation of the same backup/GitLab state. Each job keeps a bounded in-memory log tail and supports cooperative cancellation through `context.Context`.
+Only one operation can run at a time. This preserves the former terminal UI execution invariant and avoids concurrent mutation of the same backup/GitLab state. Each job keeps a bounded in-memory log tail and supports cooperative cancellation through `context.Context`.
 
 Live activity uses Server-Sent Events. The server sends complete immutable job snapshots keyed by a monotonically increasing revision. A reconnect can therefore resume with `Last-Event-ID`, and a slow browser never applies pressure to the backup pipeline. The browser falls back to low-frequency job polling if EventSource is unavailable or temporarily disconnected.
 
@@ -103,40 +103,32 @@ The console adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
 - Former TUI operations are available from the browser with job state, log tail and cancellation.
 - Responsive layout supports desktop, tablet and narrow mobile screens.
 
-### Phase 2 — Soak period and parity validation — in progress
+### Phase 2 — Soak period and parity validation — completed
 
-Keep the old `internal/tui` implementation for one compatibility release while validating:
+Parity and resilience were proven before deleting the old terminal implementation:
 
-- all TUI actions have equivalent web behavior;
-- long backup/drill jobs survive browser refreshes;
-- cancel semantics match CLI/TUI context cancellation;
-- OIDC operator/admin flows work behind the intended reverse proxy;
-- `/healthz`, `/metrics`, control plane and recovery wizard remain backward-compatible.
-
-Hardening already completed in this phase:
-
-- browser mutation audit records with actor/request correlation;
-- fail-closed behavior when required audit storage is unavailable;
-- HTTP regression tests for operation completion, rejection and cancellation;
-- local-origin/DNS-rebinding regression coverage;
-- SSE live job/log delivery with reconnect-safe full snapshots and polling fallback;
-- race coverage for the job/audit/event paths;
-- a real-browser Chromium CI gate that launches the compiled `repoark web` binary and verifies startup, routing, security headers, local session rendering, operation cards, SSE transport, polling suppression and a narrow mobile viewport;
-- an authenticated Chromium path behind a disposable HTTPS reverse proxy and OIDC provider, covering PKCE, signed ID tokens, viewer/operator/admin RBAC, CSRF, Secure/SameSite session cookies and WebAuthn-style step-up AMR/ACR;
+- a regression test locks all 11 former TUI actions to the web operation adapter;
+- browser mutation audit records include actor/request correlation and fail closed when required audit storage is unavailable;
+- HTTP regression tests cover operation completion, rejection and cancellation;
+- local-origin/DNS-rebinding regression coverage is in place;
+- SSE live job/log delivery uses reconnect-safe full snapshots and polling fallback;
+- race coverage exercises the job/audit/event paths;
+- Chromium CI launches the compiled `repoark web` binary and verifies startup, routing, security headers, local session rendering, operation cards, SSE transport, polling suppression and a narrow mobile viewport;
+- authenticated Chromium runs behind a disposable HTTPS reverse proxy and OIDC provider, covering PKCE, signed ID tokens, viewer/operator/admin RBAC, CSRF, Secure/SameSite session cookies and WebAuthn-style step-up AMR/ACR;
+- a production-shaped long-running `offsite` operation is exercised with a safe fake `restic`: Chromium refreshes while the job is running, a new EventSource converges to the same job ID/state, and cancellation reaches the terminal `cancelled` state;
+- external-command cancellation kills subprocess trees rather than only wrapper processes, preventing orphan descendants from keeping inherited stdout/stderr handles open;
+- Linux/Windows cross-builds validate the platform-specific process-tree cancellation implementation;
 - failure diagnostics preserve RepoArk/auth-harness server logs and browser screenshots without adding Node.js to the runtime distribution.
 
-Remaining soak work should focus on long-duration refresh/reconnect scenarios and production-like execution of elevated/danger operation flows with disposable backends.
+### Phase 3 — Remove terminal UI dependencies — implemented
 
-### Phase 3 — Remove terminal UI dependencies
+- `internal/tui` has been deleted;
+- Bubble Tea, Lip Gloss and their orphan terminal-rendering dependency graph have been removed from `go.mod`/`go.sum`;
+- `internal/app` no longer contains a terminal-UI route or imports Charm packages;
+- the public `repoark tui` command remains only as a deprecated alias handled by the top-level entrypoint and routed to the browser console;
+- CLI backup, restore, control-plane, agent and disaster-recovery commands remain available unchanged.
 
-After parity validation:
-
-- delete `internal/tui`;
-- remove Bubble Tea and Lip Gloss from `go.mod`/`go.sum`;
-- remove the `tui` compatibility alias in the next major/minor breaking window;
-- update README screenshots and deployment examples to use `repoark web` / default launch.
-
-CLI commands are **not** removed.
+Removing the `tui` compatibility alias itself is deferred to a future major/minor breaking window so existing launch scripts do not break merely because the implementation changed.
 
 ### Phase 4 — Progressive operations UX
 
@@ -155,8 +147,9 @@ Recommended next increments:
 - the dashboard loads without Node.js or external static assets;
 - backup/verify can be started from the browser and produce live job state/logs;
 - live job/log updates use SSE when available and converge after reconnect;
+- an active external-process operation survives browser refresh and remains the same server-side job;
 - a second operation receives HTTP 409 while one is running;
-- cancel propagates through the operation context;
+- cancel propagates through the operation context and terminates descendant subprocesses rather than leaving orphan children;
 - disabled features cannot be started even by direct API calls;
 - no-auth web console refuses non-loopback listen addresses;
 - authenticated mutations enforce RepoArk roles and CSRF;
@@ -165,9 +158,10 @@ Recommended next increments:
 - an admin session without the configured step-up AMR is rejected, while a fresh step-up session carrying the required WebAuthn AMR passes the authorization boundary;
 - recognized web mutations are represented in the tamper-evident audit ledger;
 - `audit.required` blocks mutation when the audit ledger is unavailable;
-- a CI browser smoke test starts the compiled binary and checks desktop/mobile rendering plus the live SSE path;
+- CI browser smoke tests cover desktop/mobile rendering, SSE reconnect and cancellation;
 - existing `/healthz`, `/metrics`, `/api/v1/*`, and `/restore` behavior remains available in console mode;
-- CLI commands and daemon/systemd workflows remain unchanged.
+- CLI commands and daemon/systemd workflows remain unchanged;
+- the production module graph contains no Bubble Tea/Lip Gloss dependency.
 
 ## Rollback
 
