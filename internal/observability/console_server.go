@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Homiakus/repoark/internal/audit"
 	"github.com/Homiakus/repoark/internal/controlplane"
 	"github.com/Homiakus/repoark/internal/execx"
 	"github.com/Homiakus/repoark/internal/githubapi"
@@ -197,32 +199,81 @@ func (c *consoleServer) startJob(w http.ResponseWriter, r *http.Request) {
 	if !c.authorizeMutation(w, r, risk == "danger") {
 		return
 	}
+
+	actor := c.consoleActor(r)
+	requestID := fmt.Sprintf("web-%d", time.Now().UTC().UnixNano())
+	fields := map[string]any{"surface": "web", "actor": actor, "request_id": requestID, "risk": risk}
+	if err := c.appendConsoleAudit("web-operation", name, "requested", "", fields); err != nil && c.base.cfg.Audit.Required {
+		writeConsoleJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "required audit unavailable: " + err.Error()})
+		return
+	}
+
 	run, err := consoleOperation(c.base.cfg, name)
 	if err != nil {
+		_ = c.appendConsoleAudit("web-operation", name, "rejected", err.Error(), fields)
 		writeConsoleJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	job, err := c.jobs.Start(name, run)
+	wrapped := func(ctx context.Context, log func(string)) error {
+		runErr := run(ctx, log)
+		status, detail := "success", ""
+		switch {
+		case errors.Is(runErr, context.Canceled):
+			status, detail = "cancelled", runErr.Error()
+		case runErr != nil:
+			status, detail = "error", runErr.Error()
+		}
+		if auditErr := c.appendConsoleAudit("web-operation", name, status, detail, fields); auditErr != nil {
+			log("audit warning: " + auditErr.Error())
+			if c.base.cfg.Audit.Required {
+				auditErr = fmt.Errorf("required audit completion: %w", auditErr)
+				if runErr != nil {
+					return errors.Join(runErr, auditErr)
+				}
+				return auditErr
+			}
+		}
+		return runErr
+	}
+	job, err := c.jobs.Start(name, wrapped)
 	if errorsIsJobRunning(err) {
+		_ = c.appendConsoleAudit("web-operation", name, "rejected", err.Error(), fields)
 		writeConsoleJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "job": job})
 		return
 	}
 	if err != nil {
+		_ = c.appendConsoleAudit("web-operation", name, "error", err.Error(), fields)
 		writeConsoleJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
-	writeConsoleJSON(w, http.StatusAccepted, map[string]any{"job": job})
+	writeConsoleJSON(w, http.StatusAccepted, map[string]any{"job": job, "request_id": requestID})
 }
 
 func (c *consoleServer) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if !c.authorizeMutation(w, r, false) {
 		return
 	}
+	actor := c.consoleActor(r)
+	requestID := fmt.Sprintf("web-cancel-%d", time.Now().UTC().UnixNano())
+	target := ""
+	if job := c.jobs.Snapshot(); job != nil {
+		target = job.ID
+	}
+	fields := map[string]any{"surface": "web", "actor": actor, "request_id": requestID}
+	if err := c.appendConsoleAudit("web-cancel", target, "requested", "", fields); err != nil && c.base.cfg.Audit.Required {
+		writeConsoleJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "required audit unavailable: " + err.Error()})
+		return
+	}
 	if err := c.jobs.Cancel(); err != nil {
+		_ = c.appendConsoleAudit("web-cancel", target, "rejected", err.Error(), fields)
 		writeConsoleJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
 		return
 	}
-	writeConsoleJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+	if err := c.appendConsoleAudit("web-cancel", target, "accepted", "cancellation requested", fields); err != nil && c.base.cfg.Audit.Required {
+		writeConsoleJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "cancellation accepted but required audit completion failed: " + err.Error()})
+		return
+	}
+	writeConsoleJSON(w, http.StatusAccepted, map[string]any{"ok": true, "request_id": requestID})
 }
 
 func (c *consoleServer) authorizeRead(w http.ResponseWriter, r *http.Request) bool {
@@ -258,6 +309,33 @@ func (c *consoleServer) authorizeMutation(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	return true
+}
+
+func (c *consoleServer) consoleActor(r *http.Request) string {
+	if c.base.auth == nil {
+		return "local-browser"
+	}
+	id, err := c.base.auth.Identity(r)
+	if err == nil && strings.TrimSpace(id.Subject) != "" {
+		return strings.TrimSpace(id.Subject)
+	}
+	return "oidc-user"
+}
+
+func (c *consoleServer) appendConsoleAudit(action, target, status, detail string, fields map[string]any) error {
+	cfg := c.base.cfg
+	if !cfg.Audit.Enabled {
+		return nil
+	}
+	if _, err := audit.Append(cfg.Audit.Path, action, target, status, detail, fields); err != nil {
+		return err
+	}
+	if cfg.Security.SignManifests {
+		if err := audit.WriteCheckpoint(cfg.Audit.Path, cfg.Security.SigningKeyPath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *consoleServer) authCallback(w http.ResponseWriter, r *http.Request) {
