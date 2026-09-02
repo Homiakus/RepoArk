@@ -114,7 +114,7 @@ func consoleHistoryFromAudit(path string, limit int) ([]consoleHistoryEntry, err
 		}
 		entry, ok := byRequest[requestID]
 		if !ok {
-			entry = &consoleHistoryEntry{RequestID: requestID, Operation: r.Target, State: "started", AuditSeq: r.Seq}
+			entry = &consoleHistoryEntry{RequestID: requestID, Operation: r.Target, State: "incomplete", AuditSeq: r.Seq}
 			byRequest[requestID] = entry
 			order = append(order, requestID)
 		}
@@ -141,7 +141,7 @@ func consoleHistoryFromAudit(path string, limit int) ([]consoleHistoryEntry, err
 		}
 	}
 
-	entries := make([]consoleHistoryEntry, 0, minInt(limit, len(order)))
+	entries := make([]consoleHistoryEntry, 0, consoleHistoryMin(limit, len(order)))
 	for _, requestID := range order {
 		entry := byRequest[requestID]
 		if entry.StartedAt.IsZero() && entry.EndedAt != nil {
@@ -166,7 +166,7 @@ func consoleHistoryState(status string) string {
 	case "rejected":
 		return "rejected"
 	default:
-		return "started"
+		return "incomplete"
 	}
 }
 
@@ -181,7 +181,7 @@ func historyFieldString(fields map[string]any, key string) string {
 	return strings.TrimSpace(fmt.Sprint(value))
 }
 
-func minInt(a, b int) int {
+func consoleHistoryMin(a, b int) int {
 	if a < b {
 		return a
 	}
