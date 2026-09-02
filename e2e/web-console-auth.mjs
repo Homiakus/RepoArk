@@ -24,6 +24,8 @@ async function loginAs(role) {
 
   const before = await context.request.get(`${baseURL}/api/v1/console/session`, { failOnStatusCode: false });
   assert.equal(before.status(), 401, `${role}: unauthenticated session must be rejected`);
+  const beforeHistory = await context.request.get(`${baseURL}/api/v1/console/history`, { failOnStatusCode: false });
+  assert.equal(beforeHistory.status(), 401, `${role}: unauthenticated history read must be rejected`);
 
   const home = await page.goto(baseURL, { waitUntil: 'domcontentloaded' });
   assert(home, `${role}: dashboard navigation returned no response`);
@@ -53,7 +55,20 @@ async function loginAs(role) {
 
 try {
   {
-    const { context, session } = await loginAs('viewer');
+    const { context, page, session } = await loginAs('viewer');
+    const historyResponse = await context.request.get(`${baseURL}/api/v1/console/history`);
+    assert.equal(historyResponse.status(), 200, 'viewer should be allowed to read operation history');
+    const history = await historyResponse.json();
+    assert.equal(history.enabled, true);
+    assert.equal(history.persistent, true);
+    assert.equal(history.verified, true);
+
+    const historyPage = await page.goto(`${baseURL}/history`, { waitUntil: 'domcontentloaded' });
+    assert(historyPage, 'viewer history page returned no response');
+    assert.equal(historyPage.status(), 200, 'viewer should be allowed to open operation history page');
+    assert.equal(await page.title(), 'RepoArk Operation History');
+    await page.locator('#meta').filter({ hasText: 'Verified hash-chain' }).waitFor({ timeout: 10_000 });
+
     const response = await context.request.post(`${baseURL}/api/v1/console/job/cancel`, {
       headers: { 'X-CSRF-Token': session.csrf },
       failOnStatusCode: false,
@@ -113,7 +128,7 @@ try {
   }
 
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
-  console.log('RepoArk authenticated web E2E passed: viewer/operator/admin, CSRF, HTTPS proxy, OIDC step-up');
+  console.log('RepoArk authenticated web E2E passed: viewer history, operator/admin, CSRF, HTTPS proxy, OIDC step-up');
 } catch (error) {
   if (activePage && !activePage.isClosed()) {
     await activePage.screenshot({ path: `${process.env.REPOARK_E2E_ARTIFACTS || 'artifacts/web-e2e'}/auth-failure.png`, fullPage: true }).catch(() => {});
